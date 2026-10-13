@@ -142,7 +142,9 @@ $('run').onclick = async () => {
       const l = L.geoJSON(f, { style: { color: '#ffcc00', weight: 2, fillOpacity: 0.5 } }).bindTooltip(String(i + 1), { permanent: true, direction: 'center' }).addTo(map);
       layers.push(l);
     });
-    addRow('5. 200m 안 건물', true, `건물 ${inside.length}동 중 주택(단독·공동, 기숙사 제외) ${houses.length}동 — 용도코드: ${houses.map(f => f.properties.usability).join(', ') || '없음'}`);
+    const unknown = inside.filter(f => !f.properties.usability);
+    unknown.forEach(f => layers.push(L.geoJSON(f, { style: { color: '#ffffff', weight: 2, dashArray: '3 3', fillOpacity: 0.2 } }).addTo(map)));
+    addRow('5. 200m 안 건물', true, `건물 ${inside.length}동 중 주택(단독·공동, 기숙사 제외) ${houses.length}동(노란색), 용도 미상 ${unknown.length}동(흰 점선, 건축물대장 없는 건물일 수 있음) — 용도코드: ${houses.map(f => f.properties.usability).join(', ') || '없음'}`);
   } catch (e) { addRow('5. 200m 안 건물', false, e.message); }
   const one = await testOneTile();
   await new Promise(r => setTimeout(r, 4000));
