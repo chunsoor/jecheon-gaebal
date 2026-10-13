@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>브이월드 연결 시험</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+<style>
+  :root { --bg:#f2f4f6; --card:#fff; --blue:#3182f6; --text:#191f28; --sub:#6b7684; --ok:#1f9d55; --ng:#e5484d; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Malgun Gothic",sans-serif; }
+  .wrap { max-width:1100px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border-radius:16px; padding:20px; margin-bottom:16px; }
+  h1 { font-size:22px; margin:8px 0 16px; }
+  input, button { font-size:16px; padding:10px 12px; border-radius:10px; border:1px solid #d1d6db; }
+  button { background:var(--blue); color:#fff; border:0; font-weight:700; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #map { height:420px; border-radius:12px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  td, th { border-bottom:1px solid #eef0f2; padding:8px 6px; text-align:left; vertical-align:top; }
+  .ok { color:var(--ok); font-weight:700; } .ng { color:var(--ng); font-weight:700; }
+  .sub { color:var(--sub); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>브이월드 연결 시험</h1>
+  <div class="card">
+    <div class="row">
+      <span>인증키</span><input id="key" type="password" style="flex:1;min-width:200px" placeholder="브이월드 인증키 (이 기기에만 저장)">
+      <button id="saveKey">저장</button>
+    </div>
+    <div class="sub" id="keyState"></div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <span>충청북도 제천시 봉양읍</span>
+      <input id="ri" value="삼거리" style="width:110px">
+      <input id="bunji" value="123" style="width:110px">
+      <button id="run">시험 실행</button>
+    </div>
+  </div>
+  <div class="card"><table id="result"><tr><th>항목</th><th>결과</th><th>내용</th></tr></table></div>
+  <div class="card"><div id="map"></div></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+function getKey() { try { return localStorage.getItem('vworldKey') || ''; } catch (e) { return ''; } }
+function showKeyState() { $('keyState').textContent = getKey() ? '저장된 키가 있습니다.' : '키가 없습니다. 먼저 입력해 주십시오.'; }
+$('saveKey').onclick = () => { try { localStorage.setItem('vworldKey', $('key').value.trim()); } catch (e) {} $('key').value = ''; showKeyState(); };
+showKeyState();
+
+let seq = 0;
+function jsonp(url, params) {
+  return new Promise((resolve, reject) => {
+    const cb = 'vwcb' + (++seq);
+    const q = new URLSearchParams({ ...params, key: getKey(), callback: cb });
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { cleanup(); reject(new Error('응답 없음(15초)')); }, 15000);
+    function cleanup() { clearTimeout(timer); delete window[cb]; s.remove(); }
+    window[cb] = data => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('불러오기 실패')); };
+    s.src = url + '?' + q.toString();
+    document.head.appendChild(s);
+  });
+}
+function addRow(name, ok, detail) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${name}</td><td class="${ok ? 'ok' : 'ng'}">${ok ? '성공' : '실패'}</td><td>${detail}</td>`;
+  $('result').appendChild(tr);
+}
+
+let map, layers = [];
+function initMap() {
+  if (map) return;
+  map = L.map('map');
+  L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Satellite/{z}/{y}/{x}.jpeg`, { maxZoom: 19, minZoom: 6 }).addTo(map);
+  L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Hybrid/{z}/{y}/{x}.png`, { maxZoom: 19, minZoom: 6 }).addTo(map);
+  map.setView([37.13, 128.15], 13);
+}
+
+$('run').onclick = async () => {
+  $('result').innerHTML = '<tr><th>항목</th><th>결과</th><th>내용</th></tr>';
+  if (!getKey()) { addRow('인증키', false, '키를 먼저 저장해 주십시오.'); return; }
+  initMap(); layers.forEach(l => map.removeLayer(l)); layers = [];
+  const addr = `충청북도 제천시 봉양읍 ${$('ri').value.trim()} ${$('bunji').value.trim()}`;
+  let pnu;
+  try {
+    const r = await jsonp('https://api.vworld.kr/req/search', { service: 'search', request: 'search', version: '2.0', type: 'address', category: 'parcel', format: 'json', size: '10', query: addr });
+    const items = (r.response.result || {}).items || [];
+    const hit = items.find(i => i.address.parcel === addr) || items[0];
+    if (!hit) throw new Error(r.response.status + ' ' + JSON.stringify(r.response.error || ''));
+    pnu = hit.id; addRow('1. 지번 검색', true, `${hit.address.parcel} → PNU ${pnu}`);
+  } catch (e) { addRow('1. 지번 검색', false, e.message); return; }
+
+  try {
+    const r = await jsonp('https://api.vworld.kr/ned/data/getLandUseAttr', { pnu, format: 'json', numOfRows: '100', pageNo: '1' });
+    const f = r.landUses.field || [];
+    if (!f.length) throw new Error(r.landUses.resultMsg || '자료 없음');
+    addRow('2. 토지이용계획', true, f.map(x => `${x.prposAreaDstrcCodeNm}(${x.cnflcAtNm})`).join(', '));
+  } catch (e) { addRow('2. 토지이용계획', false, e.message); }
+
+  try {
+    const r = await jsonp('https://api.vworld.kr/ned/data/getLandCharacteristics', { pnu, format: 'json', numOfRows: '10', pageNo: '1' });
+    const f = (r.landCharacteristicss.field || []).sort((a, b) => (b.stdrYear + b.lastUpdtDt).localeCompare(a.stdrYear + a.lastUpdtDt))[0];
+    if (!f) throw new Error(r.landCharacteristicss.resultMsg || '자료 없음');
+    addRow('3. 토지특성', true, `${f.stdrYear}년 기준 · 지목 ${f.lndcgrCodeNm} · 면적 ${f.lndpclAr}㎡ · 지형 ${f.tpgrphHgCodeNm}/${f.tpgrphFrmCodeNm} · 도로 ${f.roadSideCodeNm}`);
+  } catch (e) { addRow('3. 토지특성', false, e.message); }
+
+  let parcel;
+  try {
+    const r = await jsonp('https://api.vworld.kr/req/data', { service: 'data', request: 'GetFeature', data: 'LP_PA_CBND_BUBUN', attrFilter: `pnu:=:${pnu}`, geometry: 'true', format: 'json', crs: 'EPSG:4326' });
+    parcel = r.response.result.featureCollection.features[0];
+    const area = turf.area(parcel).toFixed(0);
+    const lyr = L.geoJSON(parcel, { style: { color: '#ff3b30', weight: 3, fillOpacity: 0.1 } }).addTo(map);
+    layers.push(lyr); map.fitBounds(lyr.getBounds(), { maxZoom: 17 });
+    addRow('4. 필지 경계', true, `경계 받음 (지도상 면적 약 ${area}㎡)`);
+  } catch (e) { addRow('4. 필지 경계', false, e.message); return; }
+
+  try {
+    const buf = turf.buffer(parcel, 0.2, { units: 'kilometers' });
+    const ring = L.geoJSON(buf, { style: { color: '#3182f6', weight: 2, dashArray: '6 4', fillOpacity: 0 } }).addTo(map);
+    layers.push(ring);
+    const [x1, y1, x2, y2] = turf.bbox(buf);
+    const r = await jsonp('https://api.vworld.kr/req/data', { service: 'data', request: 'GetFeature', data: 'LT_C_BLDGINFO', geomFilter: `BOX(${x1},${y1},${x2},${y2})`, geometry: 'true', format: 'json', size: '1000', crs: 'EPSG:4326' });
+    const feats = r.response.status === 'NOT_FOUND' ? [] : r.response.result.featureCollection.features;
+    const inside = feats.filter(f => turf.booleanIntersects(f, buf));
+    const houses = inside.filter(f => /^0[12]/.test(f.properties.usability || '') && f.properties.usability !== '02004');
+    houses.forEach((f, i) => {
+      const l = L.geoJSON(f, { style: { color: '#ffcc00', weight: 2, fillOpacity: 0.5 } }).bindTooltip(String(i + 1), { permanent: true, direction: 'center' }).addTo(map);
+      layers.push(l);
+    });
+    addRow('5. 200m 안 건물', true, `건물 ${inside.length}동 중 주택(단독·공동, 기숙사 제외) ${houses.length}동 — 용도코드: ${houses.map(f => f.properties.usability).join(', ') || '없음'}`);
+  } catch (e) { addRow('5. 200m 안 건물', false, e.message); }
+  addRow('6. 항공사진', true, '아래 지도에 사진이 보이면 성공입니다.');
+};
+</script>
+</body>
+</html>
