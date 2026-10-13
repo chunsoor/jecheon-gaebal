@@ -65,7 +65,7 @@ function renderOpts() {
     h = numBox('o_m2', '적치 면적(㎡)') + numBox('o_ton', '무게(톤)') + numBox('o_m3', '부피(㎥)') + selBox('o_month', '기간', [['', '선택'], ['y', '1개월 이상'], ['n', '1개월 미만']]);
   }
   h += selBox('o_type', '성장관리계획 유형(구역 안일 때, 도면 확인 후)', [['', '모름(세 유형 모두 보기)'], ['일반형', '일반형'], ['주거형', '주거형'], ['복합형', '복합형']]);
-  $('opts').innerHTML = `<div class="grid g-opt">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '');
+  $('opts').innerHTML = `<div class="opts">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '');
 }
 fillActs('');
 
@@ -477,27 +477,26 @@ function render(c) {
   // ---------- 그리기 ----------
   const zchips = zoneUses.map(u => `<span class="chip z">${esc(u.name)}${u.cn === '저촉' ? ' (저촉)' : ''}</span>`).join('');
   const ochips = live.filter(u => !ZONE_BY_API[u.name]).map(u => `<span class="chip">${esc(u.name)}${u.cn === '저촉' ? ' (저촉)' : ''}</span>`).join('');
-  const stepRows = steps.map(s => `<tr><td class="k">${esc(s.k)}</td><td class="t"><span class="tag s-${s.st}">${s.st === 'SPLIT' ? '유형별 다름' : LABEL[s.st]}</span></td><td>${esc(s.text)}${s.basis ? `<div class="basis">${esc(s.basis)}</div>` : ''}</td></tr>`).join('');
+  const stepHtml = steps.map(s => `<div class="step"><div class="sh"><span class="tag s-${s.st}">${s.st === 'SPLIT' ? '유형별 다름' : LABEL[s.st]}</span><b>${esc(s.k)}</b></div>${esc(s.text)}${s.basis ? `<div class="basis">${esc(s.basis)}</div>` : ''}</div>`).join('');
   const warnHtml = warns.length ? warns.map(w => `<div class="warn ${w.lv.startsWith('불가') ? 'w-red' : w.lv.startsWith('협의') ? 'w-yel' : 'w-gray'}"><b>${esc(w.name)} · ${esc(w.lv)}</b>${esc(w.text)}${w.basis ? `<div class="basis">${esc(w.basis)}</div>` : ''}</div>`).join('') : '<div class="hint">다른 지역·지구·구역이 없습니다.</div>';
-  const solarHtml = solarInfo ? `<div class="card"><h2>태양광 이격거리 (${c.legacy ? '9. 17. 이전 신청 · 종전 조례' : '9. 18. 이후 신청 · 재생에너지법'})</h2>
-    <table class="kv"><tr><td>신청일</td><td>${esc(c.date)}</td></tr><tr><td>설치 형태</td><td>${esc(FORM_NAME[form])}</td></tr>
-    <tr><td>200m 안</td><td class="num">주택 추정 <b>${solarInfo.h200}동</b> · 용도 미상 ${solarInfo.u200}동</td></tr>
-    ${c.legacy ? `<tr><td>300m 안</td><td class="num">주택 추정 <b>${solarInfo.h300}동</b></td></tr>` : ''}
-    <tr><td>참고</td><td>${c.legacy ? '종전 조례: 5호 이상 300m / 5호 미만 200m, 도로 500m, 충주댐 500m, 자연취락지구 경계 200m, 경지정리지구' : '도로 500m·충주댐 500m·주택 300m 기준은 적용하지 않습니다. 주택 수는 건물 자료로 센 추정치입니다.'}</td></tr></table></div>` : '';
+  const solarHtml = solarInfo ? `<div class="sub2"><b>태양광 이격거리 (${c.legacy ? '9. 17. 이전 신청 · 종전 조례' : '9. 18. 이후 신청 · 재생에너지법'})</b>
+    <div class="kv" style="margin-top:6px"><span class="k">신청일</span><span>${esc(c.date)}</span><span class="k">설치 형태</span><span>${esc(FORM_NAME[form])}</span>
+    <span class="k">200m 안</span><span class="num">주택 추정 <b>${solarInfo.h200}동</b> · 용도 미상 ${solarInfo.u200}동</span>
+    ${c.legacy ? `<span class="k">300m 안</span><span class="num">주택 추정 <b>${solarInfo.h300}동</b></span>` : ''}</div>
+    <div class="basis">${c.legacy ? '종전 조례: 5호 이상 300m / 5호 미만 200m, 도로 500m, 충주댐 500m, 자연취락지구 경계 200m, 경지정리지구' : '도로 500m·충주댐 500m·주택 300m 기준은 적용하지 않습니다. 주택 수는 건물 자료로 센 추정치입니다.'}</div></div>` : '';
 
-  $('out').innerHTML = `
-    <div class="verdict s-${vcls}"><div class="lab">${esc(act.label)} · ${esc(c.addr.replace('충청북도 제천시 ', ''))}</div><div class="big">${esc(big)}</div><div class="why">${esc(why)}</div>${yel ? `<div class="hint" style="color:inherit">협의 필요 구역 ${yel}건 · 아래 참고</div>` : ''}</div>
-    <div class="card"><h2>토지 정보</h2><table class="kv">
-      <tr><td>지번</td><td>${esc(c.addr)}</td></tr>
-      <tr><td>지목</td><td>${esc(ch ? ch.lndcgrCodeNm : '자료 없음')}</td></tr>
-      <tr><td>면적</td><td class="num">${esc(areaNote)}</td></tr>
-      <tr><td>도로 접면</td><td>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</td></tr>
-      <tr><td>용도지역</td><td><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div></td></tr>
-      <tr><td>그 밖의 구역</td><td><div class="chips">${ochips || '-'}</div></td></tr></table></div>
-    <div class="card"><h2>판단 근거</h2><table class="st"><tr><th>항목</th><th>결과</th><th>내용 · 근거</th></tr>${stepRows}</table>${growthBox ? '<div style="margin-top:12px">' + growthBox + '</div>' : ''}</div>
-    ${solarHtml}
+  $('verdict').className = `verdict s-${vcls}`;
+  $('verdict').innerHTML = `<div class="lab">${esc(act.label)} · ${esc(c.addr.replace('충청북도 제천시 ', ''))}</div><div class="big">${esc(big)}</div><div class="why">${esc(why)}${yel ? ` <span style="opacity:.8">· 협의 필요 구역 ${yel}건</span>` : ''}</div>`;
+  $('cards').innerHTML = `
+    <div class="card"><h2>판단 근거</h2>${stepHtml}${growthBox}${solarHtml}</div>
+    <div class="card"><h2>토지 정보</h2><div class="kv">
+      <span class="k">지목</span><span>${esc(ch ? ch.lndcgrCodeNm : '자료 없음')}</span>
+      <span class="k">면적</span><span class="num">${esc(areaNote)}</span>
+      <span class="k">도로 접면</span><span>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</span>
+      <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
+      <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
     <div class="card"><h2>구역별 주의</h2>${warnHtml}</div>
-    <div class="card"><h2>개발행위 허가 기준</h2><table class="st">${crit.map(r => `<tr><td class="k">${esc(r[0])}</td><td>${esc(r[1])}<div class="basis">${esc(r[2])}</div></td></tr>`).join('')}</table></div>
+    <div class="card"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div><div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
     <div class="card"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
   $('result').classList.remove('hide');
 
@@ -519,5 +518,5 @@ function render(c) {
   } else map.fitBounds(p.getBounds(), { maxZoom: 18 });
   $('legend').innerHTML = leg.join('');
   setTimeout(() => map.invalidateSize(), 50);
-  if (window.innerWidth < 1000) $('result').scrollIntoView({ behavior: 'smooth' });
+  $('result').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
