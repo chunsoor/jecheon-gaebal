@@ -50,7 +50,7 @@ function renderOpts() {
   if (!a) { $('opts').innerHTML = ''; return; }
   const yn = [['', '선택'], ['n', '없음'], ['y', '있음']];
   if (a.row === SOLAR_ROW) {
-    h = selBox('o_form', '설치 형태', [['ground', '땅 위 설치(사업용)'], ['roof', '건축물·구조물 지붕 위'], ['self', '자가소비용(자기 집·공장에서 씀)'], ['resident', '주민참여형 발전사업'], ['public', '국가·지자체·공공기관 설치'], ['village', '마을공동사업(주민 동의)']]) +
+    h = (a.label.includes('건물 위') ? numBox('o_ton', '태양광 설비 무게(톤)') + numBox('o_m3', '부피(㎥)') + numBox('o_m2', '수평투영면적(㎡)') : selBox('o_form', '사업 구분', [['ground', '일반 사업용(전기 판매)'], ['self', '자가소비용(자기 집·공장에서 씀)'], ['resident', '주민참여형 발전사업'], ['public', '국가·지자체·공공기관 설치'], ['village', '마을공동사업(주민 동의)']])) +
       `<div><label class="f">신청일(상담이면 오늘)</label><input type="date" id="o_date" value="${today()}"></div>`;
   } else if (a.label.startsWith('공작물')) {
     h = numBox('o_ton', '무게(톤)') + numBox('o_m3', '부피(㎥)') + numBox('o_m2', '수평투영면적(㎡)') +
@@ -163,7 +163,7 @@ function judgeValue(z, v) {
   if (v.startsWith('◎') && zone.common && zone.common.includes('◎')) return { st: 'COND', text: `${by}, 조건: ${zone.common}` };
   return { st: 'OK', text: by };
 }
-const FORM_NAME = { ground: '땅 위 설치(사업용)', roof: '지붕 위 설치', self: '자가소비용', resident: '주민참여형', public: '공공기관 설치', village: '마을공동사업' };
+const FORM_NAME = { ground: '부지 위 · 일반 사업용', roof: '건물 위 설치', self: '부지 위 · 자가소비용', resident: '부지 위 · 주민참여형', public: '부지 위 · 공공기관 설치', village: '부지 위 · 마을공동사업' };
 const formIs = f => `설치 형태(${FORM_NAME[f]})`;
 function solarFormAllowed(text, form) {
   return (form === 'public' && /공공/.test(text)) || (form === 'self' && /자가소비/.test(text)) ||
@@ -202,7 +202,7 @@ function deliberation(z, act, uses, has) {
   else if (r === 61 || r === 63) t = z === '자연환경보전' ? '심의 대상' : '부지 660㎡ 이내면 심의 제외.' + cond;
   return { text: t, basis: '영 제57조①1의2, 조례 제28조의2' };
 }
-function minorCheck(act, z, area, has) {
+function minorCheck(act, z, area, has, noReport) {
   // 경미한 행위(영 제53조). 값이 모두 있을 때만 판정
   const v = id => { const e = $(id); return e && e.value !== '' ? e.value : null; };
   const n = id => (v(id) === null ? null : Number(v(id)));
@@ -211,7 +211,7 @@ function minorCheck(act, z, area, has) {
   const L = act.label;
   const res = (minor, why) => ({ st: minor ? 'NA' : 'COND', text: minor ? `경미한 행위 → 허가 대상 아님 (${why})` : `허가 대상 (${why})` });
   if (L.startsWith('공작물')) {
-    const t = n('o_ton'), m3 = n('o_m3'), m2 = n('o_m2'), rep = v('o_report');
+    const t = n('o_ton'), m3 = n('o_m3'), m2 = n('o_m2'), rep = noReport ? 'n' : v('o_report');
     if (t === null || m3 === null || m2 === null || !rep) return null;
     if (rep === 'y') return res(false, '건축법 시행령 제118조① 신고 공작물');
     if (g === 'nature') return res(false, '자연환경보전지역은 경미 기준 없음');
@@ -302,7 +302,7 @@ function render(c) {
   const hasFull = re => live.some(u => u.cn === '포함' && re.test(u.name));
   const steps = [];   // {k, st, text, basis}
   const field = [];
-  const form = isSolar ? $('o_form').value : null;
+  const form = isSolar ? (act.label.includes('건물 위') ? 'roof' : $('o_form').value) : null;
   const gtype = $('o_type') ? $('o_type').value : '';
   const mapArea = turf.area(geom);
   let area = mapArea;
@@ -316,10 +316,12 @@ function render(c) {
 
   // 1) 용도지역
   const zoneUses = live.filter(u => ZONE_BY_API[u.name]);
-  const villages = zoneUses.filter(u => u.name.endsWith('취락지구'));
+  const villagesAll = zoneUses.filter(u => u.name.endsWith('취락지구'));
+  const villages = villagesAll.filter(u => u.cn === '포함');   // 필지 전체가 취락지구 안
   const bases = zoneUses.filter(u => !u.name.endsWith('취락지구'));
-  const baseZone = bases.length ? ZONE_BY_API[bases[0].name] : null;
-  const ruleZones = (villages.length ? villages : bases).map(u => ZONE_BY_API[u.name]);
+  const baseZone = bases.length ? ZONE_BY_API[(bases.find(u => u.cn === '포함') || bases[0]).name] : null;
+  // 취락지구 안이면 취락지구 시트, 일부만 걸치면 용도지역과 취락지구를 함께 판정
+  const ruleZones = (villages.length ? villages : [...bases, ...villagesAll]).map(u => ZONE_BY_API[u.name]);
   const partial = zoneUses.some(u => u.cn === '저촉') || bases.length > 1;
   if (!ruleZones.length) steps.push({ k: '용도지역', st: 'CK', text: has(/관리지역/) ? '관리지역이 세분되지 않았습니다(보전·생산·계획관리 확인)' : '용도지역을 확인하지 못했습니다', basis: '' });
 
@@ -333,7 +335,8 @@ function render(c) {
   if (isBuilding && ruleZones.length) {
     if (z76) {
       const law = baseZone === '농림' ? (forestFull ? '산지관리법(보전산지)' : '농지법(농업진흥지역)') : '자연공원법·수도법·문화유산법 중 해당 법';
-      steps.push({ k: '용도지역', st: 'CK', text: `${baseZone}지역 중 ${law} 적용 지역이라 용도지역표 대신 그 법의 행위제한으로 판단합니다(불가 가능성). 참고로 건축물표 값: ${R.zones[baseZone].vals[act.row]}`, basis: '국토계획법 제76조⑤3·4' });
+      const extra = forestFull ? ' 보전산지는 산지관리법 제12조에 열거된 행위만 할 수 있어 그 밖의 용도는 불가 가능성이 큽니다.' : '';
+      steps.push({ k: '용도지역', st: 'CK', text: `${baseZone}지역 중 ${law} 적용 지역이라 용도지역표 대신 그 법의 행위제한으로 판단합니다.${extra} 참고로 건축물표 값: ${R.zones[baseZone].vals[act.row]}`, basis: '국토계획법 제76조⑤3·4' + (forestFull ? ', 산지관리법 제12조' : '') });
     } else {
       ruleZones.forEach(z => {
         const j = judgeValue(z, R.zones[z].vals[act.row]);
@@ -366,12 +369,14 @@ function render(c) {
       const all = gv.env === '해당';
       steps.push({ k: '환경오염유발시설', st: all ? 'CK' : 'COND', text: `${all ? '' : '(' + gv.env.replace(/^해당\(|\)$/g, '') + '에 해당하면) '}주택 10호 이상 주거밀집지역·정온시설에서 200m 이상 떨어져야 합니다. 200m 안 주택 추정 ${n}동`, basis: '성장관리계획 시행지침 제13조' });
     }
+  } else if (isBuilding && has(/성장관리/) && villages.length) {
+    steps.push({ k: '성장관리', st: 'OK', text: '성장관리계획구역 안 취락지구는 성장관리 유형 대신 취락지구 건축제한을 적용합니다', basis: '성장관리계획 시행지침 제7조①' });
   } else if (isBuilding && has(/성장관리/) && !villages.length) {
     steps.push({ k: '성장관리', st: 'CK', text: '성장관리계획구역이 걸려 있으나 용도지역이 계획관리가 아닙니다. 걸친 범위 확인', basis: '' });
   }
 
   // 3) 태양광
-  let solarInfo = null;
+  let solarInfo = null, solarRoofMinor = false;
   if (isSolar) {
     const buf = turf.buffer(geom, 0.2, { units: 'kilometers' });
     const in200 = c.blds.filter(f => turf.booleanIntersects(f, buf));
@@ -403,7 +408,13 @@ function render(c) {
       const bad = h300 >= 5 ? `300m 안 주택 추정 ${h300}동(5호 이상 → 300m 이격)` : (h200 >= 1 ? `5호 미만이지만 200m 안 주택 추정 ${h200}동(200m 이격)` : '');
       steps.push({ k: '이격거리(종전 조례)', st: bad ? (ordEx ? 'COND' : 'NG') : 'CK', text: (bad || `주택 이격은 해당 없음(300m 안 ${h300}동, 200m 안 ${h200}동)`) + ' · 도로 500m, 자연취락지구 경계 200m, 충주댐 500m, 경지정리지구는 확인 필요', basis: '조례 제21조의2①(2026. 9. 17. 이전 신청, 재생에너지법 부칙 제3조)' });
     }
-    steps.push({ k: '태양광 공통', st: 'OK', text: '부지 경계 2m 이상 울타리(조례 제21조의2③) · 높이 5m 초과는 건축법 신고 공작물', basis: '조례 제21조의2③, 건축법 시행령 제118조①' });
+    if (form !== 'roof') steps.push({ k: '태양광 공통', st: 'OK', text: '부지 경계 2m 이상 울타리(조례 제21조의2③) · 높이 5m 초과는 건축법 신고 공작물', basis: '조례 제21조의2③, 건축법 시행령 제118조①' });
+    if (form === 'roof') {
+      const m = minorCheck({ label: '공작물' }, baseZone || '', area, has, true);
+      if (m) steps.push({ k: '허가 대상 여부', st: m.st, text: m.text, basis: '국토계획법 시행령 제53조2호' });
+      else steps.push({ k: '허가 대상 여부', st: 'COND', text: '무게·부피·수평투영면적을 넣으면 경미한 공작물(허가 대상 아님)인지 판정합니다', basis: '국토계획법 시행령 제53조2호' });
+      solarRoofMinor = !!(m && m.st === 'NA');
+    }
     // 보전관리·자연환경보전 등 조건부 입지(공공·자가소비·건축물 위)는 설치 형태로 다시 판정
     steps.forEach(s => { if (s.k.startsWith('용도지역') && s.st === 'COND' && /자가소비|공공/.test(s.text)) { const ok = solarFormAllowed(s.text, form); s.st = ok ? (s.zc ? 'COND' : 'OK') : 'NG'; s.text += ` → ${formIs(form)}: ${ok ? '가능' : '불가'}`; } });
   }
@@ -433,7 +444,7 @@ function render(c) {
   if (baseZone) {
     const lim = scaleLimit(baseZone);
     crit.push(['허가 규모', `${baseZone} 형질변경 ${fmt(lim)}㎡ 미만 (필지 약 ${fmt(area)}㎡)` + (area >= lim ? ' → 필지가 상한 이상, 형질변경 면적 확인' : ''), '영 제55조, 조례 제20조']);
-    const d = deliberation(baseZone, act, uses, has);
+    const d = deliberation(baseZone, act, uses, hasFull);
     crit.push(['도시계획위원회', d.text, d.basis]);
     const b = R.bcr[baseZone];
     if (b) {
@@ -455,6 +466,7 @@ function render(c) {
   const real = steps.map(s => s.st).filter(x => x !== 'SPLIT');
   let st = real.length ? real.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), real[0]) : (steps.length ? 'OK' : 'CK');
   const split = steps.some(s => s.st === 'SPLIT');
+  if (solarRoofMinor && !steps.some(s => s.st === 'NG')) st = 'NA';
   const wasNA = st === 'NA';
   if (red.length && RANK[st] < RANK.CK) st = 'CK';
   let big = LABEL[st], why = '';
