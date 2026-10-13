@@ -71,13 +71,23 @@ function addRow(name, ok, detail) {
   $('result').appendChild(tr);
 }
 
-let map, layers = [];
+let map, layers = [], tileOk = 0, tileNg = 0, tileNgUrl = '';
 function initMap() {
   if (map) return;
   map = L.map('map');
-  L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Satellite/{z}/{y}/{x}.jpeg`, { maxZoom: 19, minZoom: 6 }).addTo(map);
-  L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Hybrid/{z}/{y}/{x}.png`, { maxZoom: 19, minZoom: 6 }).addTo(map);
+  const count = t => t.on('tileload', () => tileOk++).on('tileerror', e => { tileNg++; tileNgUrl = e.tile.src.replace(getKey(), '[키]'); });
+  count(L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Satellite/{z}/{y}/{x}.jpeg`, { maxZoom: 19, minZoom: 6 })).addTo(map);
+  count(L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Hybrid/{z}/{y}/{x}.png`, { maxZoom: 19, minZoom: 6 })).addTo(map);
   map.setView([37.13, 128.15], 13);
+}
+function testOneTile() {
+  return new Promise(resolve => {
+    const img = new Image();
+    const t = setTimeout(() => resolve('응답 없음(10초)'), 10000);
+    img.onload = () => { clearTimeout(t); resolve(`성공 (${img.naturalWidth}×${img.naturalHeight})`); };
+    img.onerror = () => { clearTimeout(t); resolve('실패'); };
+    img.src = `https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Satellite/17/50970/112196.jpeg?t=${Date.now()}`;
+  });
 }
 
 $('run').onclick = async () => {
@@ -103,8 +113,9 @@ $('run').onclick = async () => {
 
   try {
     const r = await jsonp('https://api.vworld.kr/ned/data/getLandCharacteristics', { pnu, format: 'json', numOfRows: '10', pageNo: '1' });
-    const f = (r.landCharacteristicss.field || []).sort((a, b) => (b.stdrYear + b.lastUpdtDt).localeCompare(a.stdrYear + a.lastUpdtDt))[0];
-    if (!f) throw new Error(r.landCharacteristicss.resultMsg || '자료 없음');
+    const box = r.landCharacteristicss || r.response || {};
+    const f = (box.field || []).sort((a, b) => (b.stdrYear + b.lastUpdtDt).localeCompare(a.stdrYear + a.lastUpdtDt))[0];
+    if (!f) throw new Error(box.resultMsg || '토지특성 자료 없음(최근 분할·합병된 필지일 수 있음)');
     addRow('3. 토지특성', true, `${f.stdrYear}년 기준 · 지목 ${f.lndcgrCodeNm} · 면적 ${f.lndpclAr}㎡ · 지형 ${f.tpgrphHgCodeNm}/${f.tpgrphFrmCodeNm} · 도로 ${f.roadSideCodeNm}`);
   } catch (e) { addRow('3. 토지특성', false, e.message); }
 
@@ -133,7 +144,9 @@ $('run').onclick = async () => {
     });
     addRow('5. 200m 안 건물', true, `건물 ${inside.length}동 중 주택(단독·공동, 기숙사 제외) ${houses.length}동 — 용도코드: ${houses.map(f => f.properties.usability).join(', ') || '없음'}`);
   } catch (e) { addRow('5. 200m 안 건물', false, e.message); }
-  addRow('6. 항공사진', true, '아래 지도에 사진이 보이면 성공입니다.');
+  const one = await testOneTile();
+  await new Promise(r => setTimeout(r, 4000));
+  addRow('6. 항공사진', tileOk > 0 && one.startsWith('성공'), `시험 타일 1장: ${one} · 지도 타일 성공 ${tileOk}장 / 실패 ${tileNg}장${tileNgUrl ? ' · 실패 예: ' + tileNgUrl : ''} · ${navigator.userAgent}`);
 };
 </script>
 </body>
