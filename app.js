@@ -1,8 +1,11 @@
 'use strict';
-// 개발행위 1차 판단 (제천시 봉양읍) — 판단 규칙은 rules.js(판단규칙표 엑셀에서 생성)를 따릅니다.
+// 개발행위 1차 판단 (제천시 봉양읍·백운면) — 판단 규칙은 rules.js(판단규칙표 엑셀에서 생성)를 따릅니다.
 const R = window.RULES;
 const $ = id => document.getElementById(id);
-const RI = ['주포리', '장평리', '미당리', '명도리', '봉양리', '명암리', '학산리', '옥전리', '구학리', '팔송리', '연박리', '원박리', '구곡리', '공전리', '마곡리', '삼거리'];
+const RI = {
+  '봉양읍': ['주포리', '장평리', '미당리', '명도리', '봉양리', '명암리', '학산리', '옥전리', '구학리', '팔송리', '연박리', '원박리', '구곡리', '공전리', '마곡리', '삼거리'],
+  '백운면': ['평동리', '운학리', '덕동리', '화당리', '도곡리', '방학리', '모정리', '애련리', '원월리'],
+};
 const SOLAR_ROW = 68, LIVESTOCK_ROW = 61;
 const NEW_SOLAR_DATE = '2026-09-18';
 const RANK = { NA: 0, OK: 1, COND: 2, CK: 3, NG: 4 };
@@ -19,7 +22,9 @@ $('showKey').onclick = e => { e.preventDefault(); $('keyCard').classList.remove(
 refreshKeyCard();
 
 // ---------- 입력 화면 ----------
-$('ri').innerHTML = '<option value="">리 선택</option>' + RI.map(r => `<option>${r}</option>`).join('');
+function fillRi() { $('ri').innerHTML = '<option value="">리 선택</option>' + RI[$('emd').value].map(r => `<option>${r}</option>`).join(''); }
+$('emd').addEventListener('change', fillRi);
+fillRi();
 function fillActs(filter) {
   const q = (filter || '').replace(/\s/g, '');
   const groups = {};
@@ -257,6 +262,52 @@ function minorCheck(act, z, area, has, noReport) {
   return null;
 }
 
+// 소규모 환경영향평가·재해영향평가 기준 안내(면적은 묻지 않고 기준만 표시, 결론은 바꾸지 않음)
+function impactCrit(crit, z, act, live, has, hasFull, lim, isSolar) {
+  const I = R.impact || [];
+  const g = zoneGroup(z);
+  const L = act.label;
+  const isSplit = /^토지분할/.test(L), isPile = /^물건 적치/.test(L);
+  const parts = [], notes = [];
+  if (isSplit) parts.push('토지분할은 개발사업이 아니므로 해당 없음');
+  else {
+    if (g === 'green') parts.push(`${z}지역(녹지)은 등록체육시설(체육시설법 제12조)·골재채취예정지·어항·도시·군계획시설·지구단위계획 사업으로서 10,000㎡ 이상일 때만 대상 → 일반 건축·형질변경은 해당 없음`);
+    else if (g === 'urban') parts.push(`${z}지역은 등록체육시설·골재채취예정지·어항·도시·군계획시설·지구단위계획 사업으로서 60,000㎡ 이상일 때만 대상 → 일반 건축·형질변경은 해당 없음`);
+    else {
+      const zr = I.find(r => r.kind === '소규모환경-용도지역' && r.name === z);
+      if (zr) parts.push(`${z}지역은 사업면적 ${fmt(zr.area)}㎡ 이상이면 소규모 환경영향평가 대상(허가 전 협의)`);
+    }
+    const ov = I.filter(r => r.kind === '소규모환경-구역' && r.pat && !/산지/.test(r.name) && live.some(u => new RegExp(r.pat).test(u.name)));
+    ov.forEach(r => {
+      const u = live.find(x => new RegExp(r.pat).test(x.name));
+      parts.push(`${u.name}${u.cn === '저촉' ? '(일부)' : ''}: ${r.text}`);
+    });
+    if (ov.length) notes.push('용도지역 기준과 구역 기준이 함께 해당하면 용도지역 기준은 빼고 구역 기준 중 작은 면적을 적용(비고 2)');
+    if (has(/보전산지|임업용산지|공익용산지|준보전산지/)) notes.push('산지: 개발행위허가와 함께 받으면 산지 기준(4호) 대신 위 용도지역·구역 기준을 적용');
+    if (z === '계획관리') {
+      const t = isSolar ? '태양광(다른 사업으로 이미 조성된 유휴토지에 단순 공작물로 설치하는 경우만)' : isPile || act.row === 55 ? '야적장·적치장 등 창고' : act.row === 59 ? '주차시설(세차장 제외)' : act.row === 49 ? '운동장·체육관 등 체육시설' : '';
+      if (t) notes.push(`계획관리 중 토지피복지도상 나지에서 3만㎡ 미만인 ${t}은 대상에서 제외(비고 4 아목)`);
+    }
+    if (act.row === LIVESTOCK_ROW && ['mgmt', 'agri', 'nature'].includes(g)) notes.push('축사는 가축분뇨 배출·처리시설 면적 합계 5,000㎡ 이상이면 대상(비고 7)');
+    notes.push('둘 이상 지역에 걸치면 지역별 (면적÷기준면적)을 더해 1 이상이면 대상');
+    notes.push('같은 사업자가 10년 안에 승인받은 곳 경계 50m 안에서 추가하면, 합계가 기준 이상이고 추가분이 기준의 30% 이상일 때 대상(하천·왕복 2차로 이상 도로·철도로 나뉘면 제외)');
+    notes.push('충주호 등 광역상수도 호소 상류 1km 안이면 7,500㎡(공동주택 5,000㎡) 기준 → 원주지방환경청 확인');
+  }
+  crit.push(['소규모 환경영향평가', parts.join(' · '), '환경영향평가법 시행령 별표 4 (1~7호, 비고 2·4·7·8·9·11)', notes.join(' · ')]);
+
+  let d;
+  const dz = live.find(u => /자연재해위험개선지구|해일위험지구/.test(u.name));
+  if (isSplit || isPile) d = '해당 없음(토지분할·물건적치는 협의 대상 아님)';
+  else if (dz && hasFull(/자연재해위험개선지구|해일위험지구/)) d = `${dz.name} 안이라 면적과 관계없이 허가 전 재해영향평가 협의 필요`;
+  else if (dz) d = `${dz.name}에 일부 걸침: 부지 전부가 지구 안이면 면적과 관계없이 협의`;
+  else d = `보통의 개발행위는 해당 없음 — 부지 5,000㎡ 이상이면서 ${z} 허가 규모(${fmt(lim)}㎡)를 넘겨 허가하는 경우(충북 도시계획위원회 심의 등)만 대상`;
+  const dn = (isSplit || isPile) ? '' : '같은 사업자의 인접 사업은 면적 합산 · 길이 2km 이상 선형사업은 면적과 관계없이 대상' + (act.row === 53 ? ' · 공장설립 승인으로 진행하면 부지 1만㎡ 이상이면 대상' : '');
+  crit.push(['재해영향평가', d, '자연재해대책법 시행령 별표 1 (가목 1), 비고 1·3)', dn]);
+
+  if (isSolar) crit.push(['환경영향평가', '태양광 발전시설용량 10만kW 이상이면 환경영향평가 대상', '환경영향평가법 시행령 별표 3']);
+  else if (act.row === 53) crit.push(['환경영향평가', '공장설립 승인 사업면적 15만㎡ 이상이면 환경영향평가 대상', '환경영향평가법 시행령 별표 3']);
+}
+
 // ---------- 실행 ----------
 function showMsg(t) { $('msg').textContent = t; $('msg').style.display = t ? 'block' : 'none'; }
 $('run').onclick = run;
@@ -265,11 +316,11 @@ $('bunji').addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
 async function run() {
   showMsg('');
   if (!getKey()) { $('keyCard').classList.remove('hide'); showMsg('먼저 브이월드 인증키를 저장해 주십시오.'); return; }
-  const ri = $('ri').value, bunji = $('bunji').value.trim().replace(/\s/g, ''), act = actOf();
+  const emd = $('emd').value, ri = $('ri').value, bunji = $('bunji').value.trim().replace(/\s/g, ''), act = actOf();
   if (!ri || !bunji) { showMsg('리와 번지를 넣어 주십시오.'); return; }
   if (!/^\d+(-\d+)?$/.test(bunji)) { showMsg('번지는 숫자로 넣어 주십시오. 예: 123, 727-7'); return; }
   if (!act) { showMsg('하려는 일을 골라 주십시오.'); return; }
-  const addr = `충청북도 제천시 봉양읍 ${ri} ${$('san').checked ? '산 ' : ''}${bunji}`;
+  const addr = `충청북도 제천시 ${emd} ${ri} ${$('san').checked ? '산 ' : ''}${bunji}`;
   $('run').disabled = true; $('status').textContent = '브이월드에서 조회하는 중…';
   try {
     const hit = await findParcel(addr);
@@ -288,7 +339,7 @@ async function run() {
       blds = await buildings(turf.bbox(buf));
     }
     $('status').textContent = '';
-    render({ addr, pnu, uses, ch, geom, act, isSolar, date, legacy, blds });
+    render({ emd, addr, pnu, uses, ch, geom, act, isSolar, date, legacy, blds });
   } catch (e) {
     showMsg(e.message); $('status').textContent = '';
   } finally { $('run').disabled = false; }
@@ -435,6 +486,7 @@ function render(c) {
     let lv = w ? w.level : '정보';
     if (w && lv.startsWith('불가 가능성(축사)')) lv = act.row === LIVESTOCK_ROW ? '불가 가능성' : '정보';
     if (w && /성장관리|자연취락지구|보호취락지구/.test(w.pat)) lv = '정보';
+    if (w && /자연재해위험개선지구/.test(w.pat) && /^(토지분할|물건 적치)/.test(act.label)) lv = '정보';
     warns.push({ name: u.name + (u.cn === '저촉' ? ' (일부 저촉)' : ''), lv, text: w ? w.text : '해당 법령에서 행위제한을 확인하십시오.', basis: w ? w.basis : '' });
   });
   const red = warns.filter(w => w.lv.startsWith('불가'));
@@ -444,6 +496,7 @@ function render(c) {
   if (baseZone) {
     const lim = scaleLimit(baseZone);
     crit.push(['허가 규모', `${baseZone} 형질변경 ${fmt(lim)}㎡ 미만 (필지 약 ${fmt(area)}㎡)` + (area >= lim ? ' → 필지가 상한 이상, 형질변경 면적 확인' : ''), '영 제55조, 조례 제20조']);
+    impactCrit(crit, baseZone, act, live, has, hasFull, lim, isSolar);
     const d = deliberation(baseZone, act, uses, hasFull);
     crit.push(['도시계획위원회', d.text, d.basis]);
     const b = R.bcr[baseZone];
@@ -453,8 +506,13 @@ function render(c) {
       if (villages.length) t = `건폐율 60%(취락지구) · 용적률 ${b[1]}%`;
       crit.push(['건폐율·용적률', t, '조례 제50·51·59·60조']);
     }
-    if (ch && ch.roadSideCodeNm === '맹지') {
-      crit.push(['도로', '맹지입니다. 건축하려면 너비 4m 이상 도로에 2m 이상 접해야 합니다(봉양읍은 읍이라 적용)', '건축법 제44조, 제3조②']);
+    // 건축법 제3조②: 도시지역·지구단위계획구역 밖의 동·읍이 아닌 지역(면)은 접도 규정(제44조) 미적용
+    const noFrontage = (c.emd || '').endsWith('면') && !/주거|상업|공업|녹지/.test(baseZone) && !has(/지구단위계획/);
+    if (ch && ch.roadSideCodeNm === '맹지' && noFrontage) {
+      crit.push(['도로', `맹지입니다. ${c.emd}의 비도시지역이라 건축법 접도 규정(4m 도로에 2m 접함)은 적용하지 않지만, 조례 제22조의 도로·상하수도 기준은 확인해야 합니다`, '건축법 제3조②, 조례 제22조']);
+      if (isBuilding && !isSolar) steps.push({ k: '도로(맹지)', st: 'CK', text: '맹지라 진입도로(조례 제22조) 확보 계획 확인 필요', basis: '조례 제22조, 영 별표 1의2' });
+    } else if (ch && ch.roadSideCodeNm === '맹지') {
+      crit.push(['도로', `맹지입니다. 건축하려면 너비 4m 이상 도로에 2m 이상 접해야 합니다(${(c.emd || '').endsWith('읍') ? '읍 지역이라' : '도시지역이라'} 적용)`, '건축법 제44조, 제3조②']);
       if (isBuilding && !isSolar) steps.push({ k: '도로(맹지)', st: 'CK', text: '맹지라 진입도로 확보 계획이 있어야 건축 가능', basis: '건축법 제44조, 조례 제22조' });
     } else if (ch) crit.push(['도로', `도로 접면: ${ch.roadSideCodeNm}`, '토지특성']);
     if (ch && ch.lndcgrCodeNm === '임야') crit.push(['경사도·입목축적', '임야는 산지관리법 기준(평균경사도 25도 이하, 입목축적 150% 이하 등) — 산림부서 협의', '산지관리법 시행령 별표 4']);
@@ -508,7 +566,7 @@ function render(c) {
       <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
       <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
     <div class="card"><h2>구역별 주의</h2>${warnHtml}</div>
-    <div class="card"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div><div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
+    <div class="card"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
     <div class="card"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
   $('result').classList.remove('hide');
 

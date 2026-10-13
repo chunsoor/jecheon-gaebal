@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="개발행위 1차판단">
-<title>개발행위 1차 판단 · 봉양읍</title>
+<title>개발행위 1차 판단 · 봉양읍·백운면</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="rules.js?v=20261013-1721"></script>
+<script src="rules.js?v=20261014-0852"></script>
 <style>
   :root {
     --bg: #f2f4f6; --card: #ffffff; --text: #191f28; --sub: #6b7684; --line: #eef0f2;
@@ -36,11 +36,11 @@
   .btn:disabled { opacity: .5; }
   .hint { color: var(--sub); font-size: 12.5px; margin-top: 6px; }
   /* 입력: 넓은 화면은 한 줄 */
-  .inrow { display: grid; gap: 10px; grid-template-columns: 74px 120px 190px minmax(140px, 1fr) minmax(200px, 1.6fr) auto; align-items: end; }
+  .inrow { display: grid; gap: 10px; grid-template-columns: 110px 120px 190px minmax(140px, 1fr) minmax(200px, 1.6fr) auto; align-items: end; }
   .fixed { min-height: 42px; display: flex; align-items: center; font-weight: 700; }
   .opts { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-top: 10px; }
-  @media (max-width: 1100px) { .inrow { grid-template-columns: repeat(4, minmax(0, 1fr)); } .inrow .ep { display: none; } .inrow .wide { grid-column: span 3; } .inrow .wide2 { grid-column: span 2; } }
-  @media (max-width: 600px) { .inrow { grid-template-columns: 1fr 1fr; } .inrow .wide, .inrow .wide2 { grid-column: 1 / -1; } }
+  @media (max-width: 1100px) { .inrow { grid-template-columns: repeat(4, minmax(0, 1fr)); } .inrow .wide { grid-column: span 2; } .inrow .wide2 { grid-column: span 1; } .inrow .bj { grid-column: span 2; } }
+  @media (max-width: 600px) { .inrow { grid-template-columns: 1fr 1fr; } .inrow .wide, .inrow .wide2, .inrow .bj { grid-column: 1 / -1; } }
   /* 결과: 지도 + 카드 3열 */
   .verdict { border-radius: 16px; padding: 14px 18px; margin: 12px 0; display: flex; gap: 6px 18px; align-items: baseline; flex-wrap: wrap; }
   .verdict .big { font-size: 24px; font-weight: 800; white-space: nowrap; }
@@ -83,7 +83,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1>개발행위 1차 판단</h1><span class="lead">충청북도 제천시 봉양읍 · 민원 상담용 1차 판단</span></div>
+  <div class="top"><h1>개발행위 1차 판단</h1><span class="lead">충청북도 제천시 봉양읍·백운면 · 민원 상담용 1차 판단</span></div>
 
   <div class="card hide" id="keyCard" style="margin-bottom:12px">
     <h2>브이월드 인증키</h2>
@@ -96,9 +96,9 @@
 
   <div class="card">
     <div class="inrow">
-      <div class="ep"><label class="f">읍</label><div class="fixed">봉양읍</div></div>
+      <div class="ep"><label class="f">읍·면</label><select id="emd"><option>봉양읍</option><option>백운면</option></select></div>
       <div><label class="f">리</label><select id="ri"></select></div>
-      <div><label class="f">번지</label>
+      <div class="bj"><label class="f">번지</label>
         <div class="row"><label class="chk"><input type="checkbox" id="san">산</label><input type="text" id="bunji" placeholder="예: 727-7"></div></div>
       <div class="wide2"><label class="f">하려는 일 찾기</label><input type="text" id="actSearch" placeholder="예: 카페, 주기장, 태양광"></div>
       <div class="wide"><label class="f">하려는 일</label><select id="act"></select></div>
@@ -119,6 +119,6 @@
 
   <div class="foot">기준: 판단규칙표·용도지역별 건축가능 건축물표(2026. 10. 13.) · 브이월드 공간정보 · 1차 판단용이며 처분 근거는 법령 원문으로 다시 확인합니다.<br><a href="#" id="showKey">인증키 다시 넣기</a></div>
 </div>
-<script src="app.js?v=20261013-1721"></script>
+<script src="app.js?v=20261014-0852"></script>
 </body>
 </html>
