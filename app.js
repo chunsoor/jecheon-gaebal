@@ -11,6 +11,8 @@ const NEW_SOLAR_DATE = '2026-09-18';
 const RANK = { NA: 0, OK: 1, COND: 2, CK: 3, NG: 4 };
 const LABEL = { NA: '허가 대상 아님', OK: '가능', COND: '조건부 가능', CK: '확인 필요', NG: '불가' };
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// 받침에 따라 "이라/라"
+const iRa = w => { const c = w.charCodeAt(w.length - 1); return w + (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? '이라' : '라'); };
 const fmt = n => Math.round(n).toLocaleString('ko-KR');
 
 // ---------- 인증키 ----------
@@ -355,6 +357,17 @@ async function run() {
   } finally { $('run').disabled = false; }
 }
 
+// ---------- 국토계획법 제76조⑤ 특별법 적용 지역 ----------
+// 용도지역표 대신 농지법·산지관리법을 적용하는 지역에서 그 법에 허용 근거가 확인된 용도만 적음 (없으면 확인 필요)
+const SPECIAL = {
+  54: {   // 농업·임업·축산업·수산업용 창고
+    '농업진흥구역': { st: 'COND', text: '다음 경우만 가능합니다. ① 농업인·농업법인이 자기가 생산한 농산물을 건조·보관하는 창고(자기 농지가 있는 읍·면 또는 바로 붙은 읍·면에 설치) ② 농업인이 공동으로 운영·사용하는 창고', basis: '농지법 제32조①3·2, 같은 법 시행령 제29조⑤1·③1', field: '농업인·농업법인 여부, 자기가 생산한 농산물 보관용인지, 자기 농지 소재 읍·면(신청 서류로 확인)' },
+    '농업보호구역': { st: 'COND', text: '농업진흥구역에서 허용되는 경우(① 농업인·농업법인이 자기가 생산한 농산물을 건조·보관하는 창고, 자기 농지가 있는 읍·면 또는 바로 붙은 읍·면 ② 농업인 공동 창고)는 가능합니다. 그 밖의 창고는 농지법 시행령 제30조 확인', basis: '농지법 제32조②1, 같은 법 시행령 제29조⑤1·③1', field: '농업인·농업법인 여부, 자기가 생산한 농산물 보관용인지, 자기 농지 소재 읍·면(신청 서류로 확인)' },
+    '임업용산지': { st: 'COND', text: '농림어업인·생산자단체·영농조합법인·농업회사법인이 부지 3천㎡ 미만으로 짓는 농축수산물 창고·농기계창고만 가능합니다', basis: '산지관리법 제12조①5, 같은 법 시행령 제12조⑤1다목', field: '신청인이 농림어업인·생산자단체·영농법인인지, 창고 부지 3천㎡ 미만인지' },
+  },
+};
+const SPECIAL_LAW = { '농업진흥구역': '농지법', '농업보호구역': '농지법', '임업용산지': '산지관리법', '공익용산지': '산지관리법', '보전산지': '산지관리법' };
+
 // ---------- 카드 배치 ----------
 let boardCards = [];
 function placeCards() {
@@ -403,15 +416,26 @@ function render(c) {
   const isBuilding = !!act.row;
   const growthOn = has(/성장관리/) && ruleZones.includes('계획관리') && !villages.length;
   // 76조⑤
+  const resolved = [];   // 특별법 허용 근거가 확인된 구역(빨간 경고로 결론을 묶지 않음)
   const z76 = (baseZone === '농림' && (hasFull(/농업진흥구역|농업보호구역/) || hasFull(/(^|[^준])보전산지|임업용산지|공익용산지/))) ||
     (baseZone === '자연환경보전' && hasFull(/공원구역|자연공원|상수원보호|(문화유산|문화재)보호구역/));
   const forestFull = hasFull(/(^|[^준])보전산지|임업용산지|공익용산지/), forestPart = !forestFull && has(/(^|[^준])보전산지|임업용산지|공익용산지/);
 
   if (isBuilding && ruleZones.length) {
     if (z76) {
-      const law = baseZone === '농림' ? (forestFull ? '산지관리법(보전산지)' : '농지법(농업진흥지역)') : '자연공원법·수도법·문화유산법 중 해당 법';
-      const extra = forestFull ? ' 보전산지는 산지관리법 제12조에 열거된 행위만 할 수 있어 그 밖의 용도는 불가 가능성이 큽니다.' : '';
-      steps.push({ k: '용도지역', st: 'CK', text: `${baseZone}지역 중 ${law} 적용 지역이라 용도지역표 대신 그 법의 행위제한으로 판단합니다.${extra} 참고로 건축물표 값: ${R.zones[baseZone].vals[act.row]}`, basis: '국토계획법 제76조⑤3·4' + (forestFull ? ', 산지관리법 제12조' : '') });
+      // 1줄: 국토계획법(용도지역표) 결과는 참고로 보여 주고, 2줄: 실제 적용 법의 결과로 판정
+      const j = judgeValue(baseZone, R.zones[baseZone].vals[act.row]);
+      const areas = baseZone === '농림'
+        ? [hasFull(/농업진흥구역/) ? '농업진흥구역' : hasFull(/농업보호구역/) ? '농업보호구역' : null,
+           hasFull(/공익용산지/) ? '공익용산지' : hasFull(/임업용산지/) ? '임업용산지' : forestFull ? '보전산지' : null].filter(Boolean)
+        : [live.find(u => u.cn === '포함' && /공원구역|자연공원|상수원보호|(문화유산|문화재)보호구역/.test(u.name)).name];
+      steps.push({ k: `국토계획법 (${baseZone}지역)`, st: j.st, info: true, text: `용도지역표로는 "${LABEL[j.st]}"(${j.text})입니다. 다만 이 필지는 ${iRa(areas.join('·'))} 이 기준 대신 ${[...new Set(areas.map(x => SPECIAL_LAW[x] || '해당 법'))].join('·')}을 적용합니다.`, basis: `${R.zones[baseZone].basis} · 국토계획법 제76조⑤3·4` });
+      areas.forEach(x => {
+        const law = SPECIAL_LAW[x] || '해당 법';
+        const r = (SPECIAL[act.row] || {})[x];
+        if (r) { steps.push({ k: `${x} → ${law} 적용`, st: r.st, text: r.text, basis: r.basis }); field.push(r.field); resolved.push(x); }
+        else steps.push({ k: `${x} → ${law} 적용`, st: 'CK', text: law === '농지법' ? `농지법 제32조에서 정한 행위만 할 수 있습니다. 이 용도가 해당하는지 농정부서와 확인하십시오.` : law === '산지관리법' ? `산지관리법 제12조에 열거된 행위만 할 수 있어 그 밖의 용도는 불가 가능성이 큽니다. 산림부서와 확인하십시오.` : `${x} 관련 법의 행위제한으로 판단합니다. 담당 부서와 확인하십시오.`, basis: law === '농지법' ? '농지법 제32조' : law === '산지관리법' ? '산지관리법 제12조' : '' });
+      });
     } else {
       ruleZones.forEach(z => {
         const j = judgeValue(z, R.zones[z].vals[act.row]);
@@ -522,6 +546,7 @@ function render(c) {
     if (w && lv.startsWith('불가 가능성(축사)')) lv = act.row === LIVESTOCK_ROW ? '불가 가능성' : '정보';
     if (w && /성장관리|자연취락지구|보호취락지구/.test(w.pat)) lv = '정보';
     if (w && /자연재해위험개선지구/.test(w.pat) && /^(토지분할|물건 적치)/.test(act.label)) lv = '정보';
+    if (lv.startsWith('불가') && resolved.some(x => u.name === x || (x === '임업용산지' && u.name === '보전산지'))) lv = '협의 필요';
     warns.push({ name: u.name + (u.cn === '저촉' ? ' (일부 저촉)' : ''), lv, text: w ? w.text : '해당 법령에서 행위제한을 확인하십시오.', basis: w ? w.basis : '' });
   });
   const red = warns.filter(w => w.lv.startsWith('불가'));
@@ -556,19 +581,19 @@ function render(c) {
   }
 
   // 결론
-  const real = steps.map(s => s.st).filter(x => x !== 'SPLIT');
+  const real = steps.filter(s => !s.info).map(s => s.st).filter(x => x !== 'SPLIT');
   let st = real.length ? real.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), real[0]) : (steps.length ? 'OK' : 'CK');
   const split = steps.some(s => s.st === 'SPLIT');
-  if (solarRoofMinor && !steps.some(s => s.st === 'NG')) st = 'NA';
+  if (solarRoofMinor && !steps.some(s => s.st === 'NG' && !s.info)) st = 'NA';
   const wasNA = st === 'NA';
   if (red.length && RANK[st] < RANK.CK) st = 'CK';
   let big = LABEL[st], why = '';
-  const ng = steps.find(s => s.st === 'NG'), ck = steps.find(s => s.st === 'CK');
+  const ng = steps.find(s => s.st === 'NG' && !s.info), ck = steps.find(s => s.st === 'CK' && !s.info);
   if (st === 'NG') why = ng.text;
   else if (wasNA && red.length) why = `국토계획법상 개발행위허가 대상은 아닙니다. 다만 ${red.map(w => w.name).join(', ')} 관련 허가·협의를 확인해야 합니다.`;
   else if (split && RANK[st] <= RANK.COND) { big = '성장관리 유형에 따라 다름'; why = '아래 세 유형 결과를 보고 안내해 주십시오.'; }
   else if (st === 'CK') why = red.length ? `불가 가능성 있는 구역: ${red.map(w => w.name).join(', ')}` : (ck ? ck.text : '');
-  else if (st === 'COND') why = steps.filter(s => s.st === 'COND').map(s => s.text).join(' / ');
+  else if (st === 'COND') why = steps.filter(s => s.st === 'COND' && !s.info).map(s => (s.k.includes('→') ? s.k + ': ' : '') + s.text).join(' / ');
   else if (st === 'NA') why = (steps.find(s => s.st === 'NA') || {}).text || '';
   else why = '용도지역상 건축(설치)할 수 있는 용도입니다. 아래 개발행위 기준을 함께 안내하십시오.';
   const yel = warns.filter(w => w.lv.startsWith('협의')).length;
