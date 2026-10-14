@@ -20,6 +20,7 @@ function refreshKeyCard() { $('keyCard').classList.toggle('hide', !!getKey()); }
 $('saveKey').onclick = () => { setKey($('key').value.trim()); $('key').value = ''; refreshKeyCard(); if (map) { map.remove(); map = null; } };
 $('showKey').onclick = e => { e.preventDefault(); $('keyCard').classList.remove('hide'); };
 refreshKeyCard();
+{ const m = (document.querySelector('script[src*="app.js"]') || {}).src?.match(/v=([0-9-]+)/); if ($('ver')) $('ver').textContent = '화면 버전 ' + (m ? m[1] : '-'); }
 
 // ---------- 입력 화면 ----------
 function fillRi() { $('ri').innerHTML = '<option value="">리 선택</option>' + RI[$('emd').value].map(r => `<option>${r}</option>`).join(''); }

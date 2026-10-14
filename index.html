@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="rules.js?v=20261014-0920"></script>
+<script src="rules.js?v=20261014-1012"></script>
 <style>
   :root {
     --bg: #f2f4f6; --card: #ffffff; --text: #191f28; --sub: #6b7684; --line: #eef0f2;
@@ -50,7 +50,8 @@
   .board { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
   .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .col > .card { min-width: 0; }
-  .mapcard { padding: 8px; }
+  .mapcard { padding: 8px; position: relative; z-index: 0; isolation: isolate; }
+  #map { position: relative; z-index: 0; }
   #map { height: 420px; border-radius: 12px; background: #dfe3e8; }
   @media (max-width: 760px) { .board { display: flex; flex-direction: column; } .col { display: contents; } #map { height: 340px; }
     .o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; } .o5 { order: 5; } .o6 { order: 6; } }
@@ -121,8 +122,8 @@
     </div>
   </div>
 
-  <div class="foot">기준: 판단규칙표·용도지역별 건축가능 건축물표(2026. 10. 13.) · 브이월드 공간정보 · 1차 판단용이며 처분 근거는 법령 원문으로 다시 확인합니다.<br><a href="#" id="showKey">인증키 다시 넣기</a></div>
+  <div class="foot">기준: 판단규칙표·용도지역별 건축가능 건축물표(2026. 10. 13.) · 브이월드 공간정보 · 1차 판단용이며 처분 근거는 법령 원문으로 다시 확인합니다.<br><span id="ver"></span> · <a href="#" id="showKey">인증키 다시 넣기</a></div>
 </div>
-<script src="app.js?v=20261014-0920"></script>
+<script src="app.js?v=20261014-1012"></script>
 </body>
 </html>
