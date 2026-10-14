@@ -73,7 +73,9 @@ function renderOpts() {
     h = numBox('o_m2', '적치 면적(㎡)') + numBox('o_ton', '무게(톤)') + numBox('o_m3', '부피(㎥)') + selBox('o_month', '기간', [['', '선택'], ['y', '1개월 이상'], ['n', '1개월 미만']]);
   }
   h += selBox('o_type', '성장관리계획 유형(구역 안일 때, 도면 확인 후)', [['', '모름(세 유형 모두 보기)'], ['일반형', '일반형 (용도지역 기준 그대로)'], ['주거형', '주거형 (주택 위주)'], ['복합형', '복합형 (주택·상가 혼합)']]);
-  $('opts').innerHTML = `<div class="opts">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '');
+  const minorHint = a.row === SOLAR_ROW || a.label.startsWith('공작물')
+    ? `<div class="hint"><b>개발행위허가 없이 설치할 수 있는 경우(경미한 행위)</b>: 무게·부피·수평투영면적이 <b>모두</b> 아래 기준 이하일 때 · 도시지역·지구단위계획구역 <b>50톤·50㎥·50㎡</b> · 그 밖의 지역(관리·농림) <b>150톤·150㎥·150㎡</b> · 자연환경보전지역은 해당 없음(허가 필요)${a.label.includes('건물 위') ? '' : ' · 높이 5m 넘는 태양광 등 건축법 신고 공작물은 제외'} . 농지·산지 전용 등 다른 허가는 별도 (국토계획법 시행령 제53조2호)</div>` : '';
+  $('opts').innerHTML = `<div class="opts">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '') + minorHint;
 }
 fillActs('');
 
@@ -218,6 +220,12 @@ function deliberation(z, act, uses, has) {
   else if (r === 54) t = z === '자연환경보전' ? '심의 대상' : '형질변경 660㎡ 이내면 심의 제외.' + cond;
   else if (r === 61 || r === 63) t = z === '자연환경보전' ? '심의 대상' : '부지 660㎡ 이내면 심의 제외.' + cond;
   return { text: t, basis: '영 제57조①1의2, 조례 제28조의2' };
+}
+// 공작물 경미한 행위 기준(영 제53조2호): 도시지역·지구단위 50, 그 밖 150, 자연환경보전 없음
+function structLimit(z, has) {
+  const g = zoneGroup(z);
+  if (g === 'nature') return null;
+  return (g === 'urban' || g === 'green' || has(/지구단위계획/)) ? 50 : 150;
 }
 function minorCheck(act, z, area, has, noReport) {
   // 경미한 행위(영 제53조). 값이 모두 있을 때만 판정
@@ -522,7 +530,7 @@ function render(c) {
     if (form === 'roof') {
       const m = minorCheck({ label: '공작물' }, baseZone || '', area, has, true);
       if (m) steps.push({ k: '허가 대상 여부', st: m.st, text: m.text, basis: '국토계획법 시행령 제53조2호' });
-      else steps.push({ k: '허가 대상 여부', st: 'COND', text: '무게·부피·수평투영면적을 넣으면 경미한 공작물(허가 대상 아님)인지 판정합니다', basis: '국토계획법 시행령 제53조2호' });
+      else { const lim = structLimit(baseZone || '', has); steps.push({ k: '허가 대상 여부', st: 'COND', text: lim ? `무게 ${lim}톤·부피 ${lim}㎥·수평투영면적 ${lim}㎡가 모두 이하이면 경미한 행위(허가 대상 아님)입니다. 위 칸에 넣으면 바로 판정합니다` : '자연환경보전지역은 경미한 공작물 기준이 없어 허가 대상입니다', basis: '국토계획법 시행령 제53조2호' }); }
       solarRoofMinor = !!(m && m.st === 'NA');
     }
     // 보전관리·자연환경보전 등 조건부 입지(공공·자가소비·건축물 위)는 설치 형태로 다시 판정
@@ -556,6 +564,10 @@ function render(c) {
   if (baseZone) {
     const lim = scaleLimit(baseZone);
     crit.push(['허가 규모', `${baseZone} 형질변경 ${fmt(lim)}㎡ 미만 (필지 약 ${fmt(area)}㎡)` + (area >= lim ? ' → 필지가 상한 이상, 형질변경 면적 확인' : ''), '영 제55조, 조례 제20조']);
+    if (isSolar || act.label.startsWith('공작물')) {
+      const sl = structLimit(baseZone, has);
+      crit.push(['경미한 행위(공작물)', sl ? `무게 ${sl}톤·부피 ${sl}㎥·수평투영면적 ${sl}㎡ 모두 이하이면 개발행위허가 없이 설치 가능${form === 'roof' ? '' : '(높이 5m 넘는 태양광 등 건축법 신고 공작물은 제외)'}. 농지·산지 전용 등 다른 허가는 별도` : '자연환경보전지역은 경미한 공작물 기준이 없어 허가 대상', sl === 50 ? '영 제53조2호 가목(도시지역·지구단위계획구역)' : '영 제53조2호 나목(도시지역·자연환경보전지역·지구단위계획구역 외)']);
+    }
     impactCrit(crit, baseZone, act, live, has, hasFull, lim, isSolar);
     const d = deliberation(baseZone, act, uses, hasFull);
     crit.push(['도시계획위원회', d.text, d.basis]);
