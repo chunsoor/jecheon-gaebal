@@ -605,6 +605,8 @@ function render(c) {
       <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
     <div class="card o6"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>
     <div class="card o4"><h2>구역별 주의</h2>${warnHtml}</div>`;
+  // 이전 조회의 카드를 지우고 새 카드로 바꿈
+  document.querySelectorAll('.board .card:not(.mapcard)').forEach(e => e.remove());
   boardCards = ['o2', 'o3', 'o5', 'o4', 'o6'].map(k => holder.querySelector('.' + k));
   $('result').classList.remove('hide');
   placeCards();
