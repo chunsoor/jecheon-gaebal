@@ -70,7 +70,7 @@ function renderOpts() {
   } else if (a.label.startsWith('물건 적치')) {
     h = numBox('o_m2', '적치 면적(㎡)') + numBox('o_ton', '무게(톤)') + numBox('o_m3', '부피(㎥)') + selBox('o_month', '기간', [['', '선택'], ['y', '1개월 이상'], ['n', '1개월 미만']]);
   }
-  h += selBox('o_type', '성장관리계획 유형(구역 안일 때, 도면 확인 후)', [['', '모름(세 유형 모두 보기)'], ['일반형', '일반형'], ['주거형', '주거형'], ['복합형', '복합형']]);
+  h += selBox('o_type', '성장관리계획 유형(구역 안일 때, 도면 확인 후)', [['', '모름(세 유형 모두 보기)'], ['일반형', '일반형 (용도지역 기준 그대로)'], ['주거형', '주거형 (주택 위주)'], ['복합형', '복합형 (주택·상가 혼합)']]);
   $('opts').innerHTML = `<div class="opts">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '');
 }
 fillActs('');
@@ -175,13 +175,22 @@ function solarFormAllowed(text, form) {
   return (form === 'public' && /공공/.test(text)) || (form === 'self' && /자가소비/.test(text)) ||
     (form === 'roof' && /건축물 위|지붕/.test(text)) || (form === 'village' && /마을/.test(text));
 }
+// 성장관리계획 유형 설명 (시행지침 제7조 유형별 건축물 용도계획)
+const GTYPE = {
+  '일반형': '따로 막는 용도 없이 용도지역 기준을 그대로 따릅니다',
+  '주거형': '주택 위주로 지키는 곳. 공장·창고·축사·사업용 태양광 등을 막습니다',
+  '복합형': '주택과 가게가 섞인 곳. 축사·위험물 시설·사업용 태양광 등을 막습니다',
+};
+const SOLAR_EXC = '공공용·자가소비용·건물 위·마을공동사업';
 function growthStatus(text, isSolar, form) {
-  if (!text) return { st: 'OK', text: '허용' };
-  if (text.startsWith('불허')) return { st: 'NG', text };
+  if (!text || text === '허용') return { st: 'OK', text: '막는 용도가 아니어서 용도지역 기준대로 판단합니다' };
+  if (text.startsWith('불허')) return { st: 'NG', text: '이 유형에서는 지을 수 없는 용도(불허용도)입니다' + (text.replace(/^불허\s*/, '') ? ' — ' + text.replace(/^불허\s*/, '') : '') };
   if (text.startsWith('확인 필요')) return { st: 'CK', text };
-  if (text.startsWith('권장')) return { st: 'OK', text: text + ' (건폐율·용적률 인센티브)' };
+  if (text.startsWith('권장')) return { st: 'OK', text: '권장 용도' + text.replace(/^권장/, '') + '입니다. 지키면 건폐율·용적률을 더 받을 수 있습니다(인센티브)' };
   if (text.startsWith('조건')) {
-    if (isSolar) return solarFormAllowed(text, form) ? { st: 'OK', text: `${formIs(form)}: 가능` } : { st: 'NG', text: `${formIs(form)}: 불허(공공·자가소비·건축물 위·마을공동사업만 가능)` };
+    if (isSolar) return solarFormAllowed(text, form)
+      ? { st: 'OK', text: `태양광은 막는 용도지만 ${SOLAR_EXC}은 예외입니다. 이번 경우(${FORM_NAME[form]})는 예외에 해당해 가능합니다` }
+      : { st: 'NG', text: `태양광은 막는 용도입니다. ${SOLAR_EXC}만 예외인데, 이번 경우(${FORM_NAME[form]})는 예외가 아닙니다` };
     return { st: 'COND', text: text.replace(/^조건:\s*/, '') };
   }
   return { st: 'OK', text };
@@ -346,6 +355,20 @@ async function run() {
   } finally { $('run').disabled = false; }
 }
 
+// ---------- 카드 배치 ----------
+let boardCards = [];
+function placeCards() {
+  if (!boardCards.length) return;
+  boardCards.forEach(e => e.remove());
+  const cols = [$('col1'), $('col2'), $('col3')];
+  const [first, second, ...rest] = boardCards;
+  $('col2').appendChild(first);
+  $('col3').appendChild(second);
+  rest.forEach(e => cols.reduce((m, c) => (c.offsetHeight < m.offsetHeight ? c : m)).appendChild(e));
+}
+let placeTimer;
+window.addEventListener('resize', () => { clearTimeout(placeTimer); placeTimer = setTimeout(placeCards, 150); });
+
 // ---------- 판정과 화면 ----------
 function render(c) {
   const { uses, ch, geom, act, isSolar } = c;
@@ -406,14 +429,25 @@ function render(c) {
   if (isBuilding && growthOn) {
     const gv = R.growth[act.row];
     const res = ['일반형', '주거형', '복합형'].map(t => ({ t, ...growthStatus(gv[t], isSolar, form) }));
-    growthBox = `<div class="three">${res.map(r => `<div class="s-${r.st}${gtype && gtype !== r.t ? '" style="opacity:.45' : ''}"><div class="h">${r.t} · ${LABEL[r.st]}</div>${esc(r.text)}</div>`).join('')}</div>` +
-      `<div class="hint">유형은 성장관리계획 지형도면(제천 지형도면 모음)에서 확인합니다. 건폐율 40%(인센티브 시 최대 50%) · 용적률 100%(최대 125%) · 심의 제외 · 체크리스트 제출. 근거: 성장관리계획 시행지침 제7·8·18조</div>`;
+    const cell = r => `<div class="s-${r.st}"${gtype && gtype !== r.t ? ' style="opacity:.45"' : ''}><div class="gh"><b>${r.t}</b><span class="tag s-${r.st}" style="background:#fff">${LABEL[r.st]}</span></div><div class="gd">${GTYPE[r.t]}</div><div>${esc(r.text)}</div></div>`;
+    let solarTable = '';
+    if (isSolar) {
+      const forms = ['ground', 'resident', 'self', 'public', 'village', 'roof'];
+      const SHORT = { ground: '일반 사업용', resident: '주민참여형', self: '자가소비용', public: '공공기관 설치', village: '마을공동사업', roof: '건물 위 설치' };
+      const mark = (f, t) => growthStatus(gv[t], true, f).st === 'OK' ? '<span class="ok">가능</span>' : '<span class="ng">불가</span>';
+      solarTable = `<div class="gt"><div class="gt-h">태양광 종류별로 보면</div><table><thead><tr><th>태양광 종류<br>(건물 위 외에는 부지 위)</th><th>일반형</th><th>주거형</th><th>복합형</th></tr></thead><tbody>${forms.map(f => `<tr${f === form ? ' class="me"' : ''}><td>${esc(SHORT[f])}${f === form ? ' <span class="tag" style="background:#3182f6;color:#fff">이번 경우</span>' : ''}</td>${['일반형', '주거형', '복합형'].map(t => `<td>${mark(f, t)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+        <div class="basis">주거형·복합형은 태양광 발전시설을 막는 용도로 정했지만 ${SOLAR_EXC}(주민 동의 + 국가·지자체 지원 + 마을공동체 직접 시행)은 예외입니다. 그래서 땅 위에 세워 전기를 파는 사업용만 막힙니다.</div></div>`;
+    }
+    growthBox = `<div class="sub2"><b>성장관리계획구역 유형별 판단</b>
+      <div class="hint" style="margin-top:2px">이 필지는 성장관리계획구역 안입니다. 구역마다 일반형·주거형·복합형 중 하나로 정해져 있고, 유형마다 지을 수 없는 용도가 다릅니다. ${gtype ? `고르신 유형(${gtype})을 진하게 표시했습니다.` : '이 필지의 유형은 지형도면(제천 지형도면 모음)에서 찾아 확인합니다.'}</div>
+      <div class="three">${res.map(cell).join('')}</div>${solarTable}
+      <div class="basis">세 유형 공통: 건폐율 40%(권장 용도 등 인센티브 시 최대 50%) · 용적률 100%(최대 125%) · 도시계획위원회 심의 제외 · 체크리스트 제출. 근거: 성장관리계획 시행지침 제7·8·18조</div></div>`;
     if (gtype) { const r = res.find(x => x.t === gtype); steps.push({ k: `성장관리 (${gtype})`, st: r.st, text: r.text, basis: '성장관리계획 시행지침 제7조' }); }
     else {
       const sts = [...new Set(res.map(r => r.st))];
       if (sts.length === 1) steps.push({ k: '성장관리', st: sts[0], text: `세 유형 모두 ${LABEL[sts[0]]}`, basis: '성장관리계획 시행지침 제7조' });
-      else if (!sts.some(s => s === 'NG' || s === 'CK')) steps.push({ k: '성장관리', st: sts.includes('COND') ? 'COND' : 'OK', text: '어느 유형이든 가능(유형에 따라 조건이 붙음, 아래 세 칸 참고)', basis: '성장관리계획 시행지침 제7조' });
-      else steps.push({ k: '성장관리', st: 'SPLIT', text: '유형에 따라 다릅니다(아래 세 칸 참고). 지형도면에서 유형을 확인해 다시 고르십시오.', basis: '성장관리계획 시행지침 제7조' });
+      else if (!sts.some(s => s === 'NG' || s === 'CK')) steps.push({ k: '성장관리', st: sts.includes('COND') ? 'COND' : 'OK', text: '어느 유형이든 가능합니다. 유형에 따라 조건이 붙습니다(아래 "유형별 판단" 참고).', basis: '성장관리계획 시행지침 제7조' });
+      else steps.push({ k: '성장관리', st: 'SPLIT', text: '성장관리계획구역 유형(일반형·주거형·복합형)에 따라 다릅니다. 아래 "유형별 판단"을 보시고, 지형도면에서 유형을 확인해 위 "성장관리계획 유형"을 고르면 결론이 하나로 나옵니다.', basis: '성장관리계획 시행지침 제7조' });
     }
     if (gv.env && act.id !== 65) {
       const b200 = turf.buffer(geom, 0.2, { units: 'kilometers' });
@@ -558,20 +592,22 @@ function render(c) {
 
   $('verdict').className = `verdict s-${vcls}`;
   $('verdict').innerHTML = `<div class="lab">${esc(act.label)} · ${esc(c.addr.replace('충청북도 제천시 ', ''))}</div><div class="big">${esc(big)}</div><div class="why">${esc(why)}${yel ? ` <span style="opacity:.8">· 협의 필요 구역 ${yel}건</span>` : ''}</div>`;
-  // 열 1: 지도·구역별 주의 / 열 2: 판단 근거·허가 기준 / 열 3: 토지 정보·현장 확인 (좁은 화면은 o1~o6 순서로 한 줄)
-  $('col2').innerHTML = `
+  // 카드: 판단 근거(가운데)·토지 정보(오른쪽)를 먼저 두고, 나머지는 그때그때 가장 짧은 열 아래에 붙임 (좁은 화면은 o1~o6 순서로 한 줄)
+  const holder = document.createElement('div');
+  holder.innerHTML = `
     <div class="card o2"><h2>판단 근거</h2>${stepHtml}${growthBox}${solarHtml}</div>
-    <div class="card o5"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>`;
-  $('col3').innerHTML = `
+    <div class="card o5"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
     <div class="card o3"><h2>토지 정보</h2><div class="kv">
       <span class="k">지목</span><span>${esc(ch ? ch.lndcgrCodeNm : '자료 없음')}</span>
       <span class="k">면적</span><span class="num">${esc(areaNote)}</span>
       <span class="k">도로 접면</span><span>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</span>
       <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
       <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
-    <div class="card o6"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
-  $('col1').innerHTML = `<div class="card o4"><h2>구역별 주의</h2>${warnHtml}</div>`;
+    <div class="card o6"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>
+    <div class="card o4"><h2>구역별 주의</h2>${warnHtml}</div>`;
+  boardCards = ['o2', 'o3', 'o5', 'o4', 'o6'].map(k => holder.querySelector('.' + k));
   $('result').classList.remove('hide');
+  placeCards();
 
   // 지도
   initMap();
