@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
-<script src="rules.js?v=20261014-0852"></script>
+<script src="rules.js?v=20261014-0920"></script>
 <style>
   :root {
     --bg: #f2f4f6; --card: #ffffff; --text: #191f28; --sub: #6b7684; --line: #eef0f2;
@@ -46,11 +46,14 @@
   .verdict .big { font-size: 24px; font-weight: 800; white-space: nowrap; }
   .verdict .lab { font-size: 13px; font-weight: 700; opacity: .85; width: 100%; }
   .verdict .why { font-size: 15px; flex: 1; min-width: 240px; }
+  /* 세 줄기(열)마다 카드를 위에서부터 붙여 쌓아 빈칸이 생기지 않게 함 */
   .board { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
-  .board > .card { min-width: 0; }
-  .mapcard { padding: 8px; position: sticky; top: 8px; }
+  .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .col > .card { min-width: 0; }
+  .mapcard { padding: 8px; }
   #map { height: 420px; border-radius: 12px; background: #dfe3e8; }
-  @media (max-width: 760px) { .board { grid-template-columns: minmax(0, 1fr); } .mapcard { position: static; } #map { height: 340px; } }
+  @media (max-width: 760px) { .board { display: flex; flex-direction: column; } .col { display: contents; } #map { height: 340px; }
+    .o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; } .o5 { order: 5; } .o6 { order: 6; } }
   .legend { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: 12px; color: var(--sub); margin: 6px 4px 2px; }
   .sw { display: inline-block; width: 13px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
   .s-OK { background: var(--ok-weak); color: #0b5d2e; } .s-COND { background: var(--cond-weak); color: #7a4d00; }
@@ -112,13 +115,14 @@
   <div class="hide" id="result">
     <div class="verdict" id="verdict"></div>
     <div class="board">
-      <div class="card mapcard"><div id="map"></div><div class="legend" id="legend"></div></div>
-      <div id="cards" style="display:contents"></div>
+      <div class="col"><div class="card mapcard o1"><div id="map"></div><div class="legend" id="legend"></div></div><div id="col1" style="display:contents"></div></div>
+      <div class="col" id="col2"></div>
+      <div class="col" id="col3"></div>
     </div>
   </div>
 
   <div class="foot">기준: 판단규칙표·용도지역별 건축가능 건축물표(2026. 10. 13.) · 브이월드 공간정보 · 1차 판단용이며 처분 근거는 법령 원문으로 다시 확인합니다.<br><a href="#" id="showKey">인증키 다시 넣기</a></div>
 </div>
-<script src="app.js?v=20261014-0852"></script>
+<script src="app.js?v=20261014-0920"></script>
 </body>
 </html>

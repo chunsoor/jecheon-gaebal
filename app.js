@@ -557,17 +557,19 @@ function render(c) {
 
   $('verdict').className = `verdict s-${vcls}`;
   $('verdict').innerHTML = `<div class="lab">${esc(act.label)} · ${esc(c.addr.replace('충청북도 제천시 ', ''))}</div><div class="big">${esc(big)}</div><div class="why">${esc(why)}${yel ? ` <span style="opacity:.8">· 협의 필요 구역 ${yel}건</span>` : ''}</div>`;
-  $('cards').innerHTML = `
-    <div class="card"><h2>판단 근거</h2>${stepHtml}${growthBox}${solarHtml}</div>
-    <div class="card"><h2>토지 정보</h2><div class="kv">
+  // 열 1: 지도·구역별 주의 / 열 2: 판단 근거·허가 기준 / 열 3: 토지 정보·현장 확인 (좁은 화면은 o1~o6 순서로 한 줄)
+  $('col2').innerHTML = `
+    <div class="card o2"><h2>판단 근거</h2>${stepHtml}${growthBox}${solarHtml}</div>
+    <div class="card o5"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>`;
+  $('col3').innerHTML = `
+    <div class="card o3"><h2>토지 정보</h2><div class="kv">
       <span class="k">지목</span><span>${esc(ch ? ch.lndcgrCodeNm : '자료 없음')}</span>
       <span class="k">면적</span><span class="num">${esc(areaNote)}</span>
       <span class="k">도로 접면</span><span>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</span>
       <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
       <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
-    <div class="card"><h2>구역별 주의</h2>${warnHtml}</div>
-    <div class="card"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
-    <div class="card"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
+    <div class="card o6"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>`;
+  $('col1').innerHTML = `<div class="card o4"><h2>구역별 주의</h2>${warnHtml}</div>`;
   $('result').classList.remove('hide');
 
   // 지도
