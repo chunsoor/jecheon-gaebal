@@ -14,6 +14,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 // 받침에 따라 "이라/라"
 const iRa = w => { const c = w.charCodeAt(w.length - 1); return w + (c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 ? '이라' : '라'); };
 const fmt = n => Math.round(n).toLocaleString('ko-KR');
+const fmtA = n => (+n).toLocaleString('ko-KR', { maximumFractionDigits: 2 });   // 대장 면적은 소수점까지
 
 // ---------- 인증키 ----------
 function getKey() { try { return localStorage.getItem('vworldKey') || ''; } catch (e) { return ''; } }
@@ -93,6 +94,16 @@ function jsonp(url, params) {
     document.head.appendChild(s);
   });
 }
+// 브이월드 토지 API(ned)는 가끔 '인증키 정보가 올바르지 않습니다'를 잘못 돌려주므로 두 번까지 다시 묻는다
+async function ned(name, params) {
+  let r;
+  for (let i = 0; i < 3; i++) {
+    r = await jsonp('https://api.vworld.kr/ned/data/' + name, params);
+    if (!/INCORRECT_KEY/.test(JSON.stringify(r))) return r;
+    await new Promise(ok => setTimeout(ok, 700));
+  }
+  return r;
+}
 function vwError(r) { const e = ((r || {}).response || {}).error; return e ? `브이월드 오류: ${e.text || e.code}` : ''; }
 async function findParcel(addr) {
   const r = await jsonp('https://api.vworld.kr/req/search', { service: 'search', request: 'search', version: '2.0', type: 'address', category: 'parcel', format: 'json', size: '10', query: addr });
@@ -102,15 +113,21 @@ async function findParcel(addr) {
   return items.find(i => k(i.address.parcel) === k(addr));
 }
 async function landUses(pnu) {
-  const r = await jsonp('https://api.vworld.kr/ned/data/getLandUseAttr', { pnu, format: 'json', numOfRows: '200', pageNo: '1' });
+  const r = await ned('getLandUseAttr', { pnu, format: 'json', numOfRows: '200', pageNo: '1' });
   const box = r.landUses || r.response || {};
   if (box.resultCode && box.resultCode !== '') throw new Error(`토지이용계획 조회 실패: ${box.resultMsg || box.resultCode}`);
   return [].concat(box.field || []).map(f => ({ name: f.prposAreaDstrcCodeNm, cn: f.cnflcAtNm }));
 }
 async function landChar(pnu) {
-  const r = await jsonp('https://api.vworld.kr/ned/data/getLandCharacteristics', { pnu, format: 'json', numOfRows: '20', pageNo: '1' });
+  const r = await ned('getLandCharacteristics', { pnu, format: 'json', numOfRows: '100', pageNo: '1' });
   const box = r.landCharacteristicss || r.response || {};
   return [].concat(box.field || []).sort((a, b) => (b.stdrYear + b.lastUpdtDt).localeCompare(a.stdrYear + a.lastUpdtDt))[0] || null;
+}
+// 토지(임야)대장의 현재 면적·지목 (공부상 면적)
+async function landReg(pnu) {
+  const r = await ned('ladfrlList', { pnu, format: 'json', numOfRows: '10', pageNo: '1' });
+  const box = r.ladfrlVOList || {};
+  return [].concat(box.ladfrlVOList || []).find(x => x.lndpclAr) || null;
 }
 async function parcelGeom(pnu) {
   const r = await jsonp('https://api.vworld.kr/req/data', { service: 'data', request: 'GetFeature', data: 'LP_PA_CBND_BUBUN', attrFilter: `pnu:=:${pnu}`, geometry: 'true', format: 'json', crs: 'EPSG:4326' });
@@ -249,9 +266,9 @@ function minorCheck(act, z, area, has, noReport) {
     const a1 = cm <= 50 && pv === 'n' && (g === 'urban' || jm === 'n');
     const a2 = (g === 'mgmt' || g === 'agri') && !dj && area && area <= 660 && jm === 'n';
     if (a1) return res(true, '높이 50cm 이내(누적), 포장 아님' + (g === 'urban' ? '' : ', 지목변경 없음'));
-    if (a2) return res(true, `관리·농림 필지 총면적 ${fmt(area)}㎡ ≤ 660㎡, 지목변경 없음`);
+    if (a2) return res(true, `관리·농림 필지 총면적 ${fmtA(area)}㎡ ≤ 660㎡, 지목변경 없음`);
     const why = [cm > 50 && '높이 50cm 초과', pv === 'y' && '포장 포함', jm === 'y' && g !== 'urban' && '지목변경 있음',
-      (g === 'mgmt' || g === 'agri') && !dj && area > 660 && `필지 ${fmt(area)}㎡로 660㎡ 초과`].filter(Boolean).join(', ');
+      (g === 'mgmt' || g === 'agri') && !dj && area > 660 && `필지 ${fmtA(area)}㎡로 660㎡ 초과`].filter(Boolean).join(', ');
     return res(false, why || '경미 기준에 해당하지 않음');
   }
   if (L.startsWith('토석채취')) {
@@ -346,7 +363,7 @@ async function run() {
     const hit = await findParcel(addr);
     if (!hit) throw new Error(`"${addr}"를 찾지 못했습니다. 리·번지·산 여부를 확인해 주십시오.`);
     const pnu = hit.id;
-    const [uses, ch, geom] = await Promise.all([landUses(pnu), landChar(pnu).catch(() => null), parcelGeom(pnu)]);
+    const [uses, ch, reg, geom] = await Promise.all([landUses(pnu), landChar(pnu).catch(() => null), landReg(pnu).catch(() => null), parcelGeom(pnu)]);
     if (!uses.length) throw new Error('토지이용계획 자료를 받지 못했습니다.');
     const isSolar = act.row === SOLAR_ROW;
     const date = isSolar ? ($('o_date').value || today()) : today();
@@ -359,7 +376,7 @@ async function run() {
       blds = await buildings(turf.bbox(buf));
     }
     $('status').textContent = '';
-    render({ emd, addr, pnu, uses, ch, geom, act, isSolar, date, legacy, blds });
+    render({ emd, addr, pnu, uses, ch, reg, geom, act, isSolar, date, legacy, blds });
   } catch (e) {
     showMsg(e.message); $('status').textContent = '';
   } finally { $('run').disabled = false; }
@@ -392,7 +409,7 @@ window.addEventListener('resize', () => { clearTimeout(placeTimer); placeTimer =
 
 // ---------- 판정과 화면 ----------
 function render(c) {
-  const { uses, ch, geom, act, isSolar } = c;
+  const { uses, ch, reg, geom, act, isSolar } = c;
   const live = uses.filter(u => u.cn !== '접함');
   const has = re => live.some(u => re.test(u.name));
   const hasFull = re => live.some(u => u.cn === '포함' && re.test(u.name));
@@ -404,11 +421,15 @@ function render(c) {
   let area = mapArea;
   // 면적
   let areaNote = `지도상 약 ${fmt(mapArea)}㎡`;
-  if (ch) {
+  const jimok = reg ? reg.lndcgrCodeNm : ch ? ch.lndcgrCodeNm : '';
+  if (reg) {
+    area = +reg.lndpclAr;
+    areaNote = `${fmtA(area)}㎡ (${reg.regstrSeCodeNm || '토지대장'}${reg.lastUpdtDt ? ' ' + reg.lastUpdtDt + ' 기준' : ''}) · 지도상 약 ${fmt(mapArea)}㎡`;
+  } else if (ch) {
     const a = +ch.lndpclAr, recent = +ch.stdrYear >= new Date().getFullYear() - 1, close = Math.abs(a - mapArea) / a <= 0.1;
     areaNote = `${fmt(a)}㎡ (토지특성 ${ch.stdrYear}년) · 지도상 약 ${fmt(mapArea)}㎡`;
-    if (recent && close) area = a; else field.push('지적 면적: 토지특성 자료가 오래됐거나 지도 면적과 달라 토지대장으로 확인');
-  } else field.push('지적 면적: 토지특성 자료가 없어 토지대장으로 확인(최근 분할·합병 필지일 수 있음)');
+    if (recent && close) area = a; else field.push('지적 면적: 토지대장 자료를 받지 못했고 토지특성 자료가 오래됐거나 지도 면적과 달라 토지대장으로 확인');
+  } else field.push('지적 면적: 토지대장·토지특성 자료를 받지 못해 토지대장으로 확인(최근 분할·합병 필지일 수 있음)');
 
   // 1) 용도지역
   const zoneUses = live.filter(u => ZONE_BY_API[u.name]);
@@ -563,7 +584,7 @@ function render(c) {
   const crit = [];
   if (baseZone) {
     const lim = scaleLimit(baseZone);
-    crit.push(['허가 규모', `${baseZone} 형질변경 ${fmt(lim)}㎡ 미만 (필지 약 ${fmt(area)}㎡)` + (area >= lim ? ' → 필지가 상한 이상, 형질변경 면적 확인' : ''), '영 제55조, 조례 제20조']);
+    crit.push(['허가 규모', `${baseZone} 형질변경 ${fmt(lim)}㎡ 미만 (필지 ${area === mapArea ? '약 ' + fmt(area) : fmtA(area)}㎡)` + (area >= lim ? ' → 필지가 상한 이상, 형질변경 면적 확인' : ''), '영 제55조, 조례 제20조']);
     if (isSolar || act.label.startsWith('공작물')) {
       const sl = structLimit(baseZone, has);
       crit.push(['경미한 행위(공작물)', sl ? `무게 ${sl}톤·부피 ${sl}㎥·수평투영면적 ${sl}㎡ 모두 이하이면 개발행위허가 없이 설치 가능${form === 'roof' ? '' : '(높이 5m 넘는 태양광 등 건축법 신고 공작물은 제외)'}. 농지·산지 전용 등 다른 허가는 별도` : '자연환경보전지역은 경미한 공작물 기준이 없어 허가 대상', sl === 50 ? '영 제53조2호 가목(도시지역·지구단위계획구역)' : '영 제53조2호 나목(도시지역·자연환경보전지역·지구단위계획구역 외)']);
@@ -587,7 +608,7 @@ function render(c) {
       crit.push(['도로', `맹지입니다. 건축하려면 너비 4m 이상 도로에 2m 이상 접해야 합니다(${(c.emd || '').endsWith('읍') ? '읍 지역이라' : '도시지역이라'} 적용)`, '건축법 제44조, 제3조②']);
       if (isBuilding && !isSolar) steps.push({ k: '도로(맹지)', st: 'CK', text: '맹지라 진입도로 확보 계획이 있어야 건축 가능', basis: '건축법 제44조, 조례 제22조' });
     } else if (ch) crit.push(['도로', `도로 접면: ${ch.roadSideCodeNm}`, '토지특성']);
-    if (ch && ch.lndcgrCodeNm === '임야') crit.push(['경사도·입목축적', '임야는 산지관리법 기준(평균경사도 25도 이하, 입목축적 150% 이하 등) — 산림부서 협의', '산지관리법 시행령 별표 4']);
+    if (jimok === '임야') crit.push(['경사도·입목축적', '임야는 산지관리법 기준(평균경사도 25도 이하, 입목축적 150% 이하 등) — 산림부서 협의', '산지관리법 시행령 별표 4']);
     else if (/계획관리/.test(baseZone) || zoneGroup(baseZone) === 'urban') crit.push(['경사도·입목축적', '계획관리·주거·상업·공업지역은 조례 제21조 적용 제외', '조례 제21조']);
     else crit.push(['경사도·입목축적', '최대경사도 36% 미만, 입목축적 150% 이하 — 경사분석도·산림조사서로 확인', '조례 제21조']);
   }
@@ -635,7 +656,7 @@ function render(c) {
     <div class="card o2"><h2>판단 근거</h2>${stepHtml}${growthBox}${solarHtml}</div>
     <div class="card o5"><h2>개발행위 허가 기준</h2>${crit.map(r => `<div class="step"><b>${esc(r[0])}</b><div>${esc(r[1])}</div>${r[3] ? `<div class="basis" style="color:#4e5968">${esc(r[3])}</div>` : ''}<div class="basis">${esc(r[2])}</div></div>`).join('')}</div>
     <div class="card o3"><h2>토지 정보</h2><div class="kv">
-      <span class="k">지목</span><span>${esc(ch ? ch.lndcgrCodeNm : '자료 없음')}</span>
+      <span class="k">지목</span><span>${esc(jimok || '자료 없음')}</span>
       <span class="k">면적</span><span class="num">${esc(areaNote)}</span>
       <span class="k">도로 접면</span><span>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</span>
       <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
