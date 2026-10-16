@@ -1,11 +1,22 @@
 'use strict';
-// 개발행위 1차 판단 (제천시 봉양읍·백운면) — 판단 규칙은 rules.js(판단규칙표 엑셀에서 생성)를 따릅니다.
+// 개발행위 1차 판단 (제천시 전역) — 판단 규칙은 rules.js(판단규칙표 엑셀에서 생성)를 따릅니다.
 const R = window.RULES;
 const $ = id => document.getElementById(id);
+// 제천시 법정 읍·면·리, 동 (브이월드 행정구역 LT_C_ADEMD_INFO·LT_C_ADRI_INFO, 2026. 10. 16. 조회, 법정동코드 순)
 const RI = {
   '봉양읍': ['주포리', '장평리', '미당리', '명도리', '봉양리', '명암리', '학산리', '옥전리', '구학리', '팔송리', '연박리', '원박리', '구곡리', '공전리', '마곡리', '삼거리'],
+  '금성면': ['구룡리', '성내리', '월굴리', '중전리', '포전리', '활산리', '사곡리', '적덕리', '진리', '월림리', '위림리', '양화리', '대장리', '동막리'],
+  '청풍면': ['읍리', '연곡리', '광의리', '계산리', '황석리', '후산리', '사오리', '부산리', '장선리', '단돈리', '방흥리', '오산리', '진목리', '양평리', '도곡리', '대류리', '신리', '용곡리', '연론리', '단리', '물태리', '도리', '실리곡리', '북진리', '도화리', '교리', '학현리'],
+  '수산면': ['수산리', '내리', '적곡리', '수곡리', '수리', '대전리', '계란리', '괴곡리', '원대리', '다불리', '전곡리', '구곡리', '도전리', '율지리', '지곡리', '서곡리', '오티리', '성리', '상천리', '하천리', '능강리', '고명리'],
+  '덕산면': ['도전리', '성암리', '신현리', '수산리', '월악리', '도기리', '선고리'],
+  '한수면': ['황강리', '서창리', '덕곡리', '한천리', '역리', '북노리', '상노리', '탄지리', '복평리', '송계리'],
   '백운면': ['평동리', '운학리', '덕동리', '화당리', '도곡리', '방학리', '모정리', '애련리', '원월리'],
+  '송학면': ['무도리', '장곡리', '입석리', '시곡리', '도화리', '포전리', '송한리', '오미리'],
 };
+const DONG = ['의림동', '서부동', '동현동', '남천동', '교동', '중앙로1가', '중앙로2가', '명동', '화산동', '영천동', '하소동', '신월동', '청전동', '모산동', '고암동', '장락동', '흑석동', '두학동', '고명동', '신백동', '강제동', '명지동', '산곡동', '왕암동', '천남동', '신동', '자작동', '대랑동'];
+const isDong = emd => DONG.includes(emd);
+// 토지이용계획 코드 UQS~UQY는 도시·군계획시설(교통·공간·유통공급·공공문화체육·방재·보건위생·환경기초)
+const isFacility = u => /^UQ[S-Y]/.test(u.code || '') || /^(대로|중로|소로|광로)/.test(u.name);
 const SOLAR_ROW = 68, LIVESTOCK_ROW = 61;
 const NEW_SOLAR_DATE = '2026-09-18';
 const RANK = { NA: 0, OK: 1, COND: 2, CK: 3, NG: 4 };
@@ -26,7 +37,14 @@ refreshKeyCard();
 { const m = (document.querySelector('script[src*="app.js"]') || {}).src?.match(/v=([0-9-]+)/); if ($('ver')) $('ver').textContent = '화면 버전 ' + (m ? m[1] : '-'); }
 
 // ---------- 입력 화면 ----------
-function fillRi() { $('ri').innerHTML = '<option value="">리 선택</option>' + RI[$('emd').value].map(r => `<option>${r}</option>`).join(''); }
+$('emd').innerHTML = `<optgroup label="읍·면">${Object.keys(RI).map(e => `<option>${e}</option>`).join('')}</optgroup>` +
+  `<optgroup label="동">${DONG.map(e => `<option>${e}</option>`).join('')}</optgroup>`;
+// 동은 리가 없으므로 리 칸을 막음
+function fillRi() {
+  const e = $('emd').value;
+  $('ri').innerHTML = isDong(e) ? '<option value="">(동은 리 없음)</option>' : '<option value="">리 선택</option>' + RI[e].map(r => `<option>${r}</option>`).join('');
+  $('ri').disabled = isDong(e);
+}
 $('emd').addEventListener('change', fillRi);
 fillRi();
 function fillActs(filter) {
@@ -116,7 +134,7 @@ async function landUses(pnu) {
   const r = await ned('getLandUseAttr', { pnu, format: 'json', numOfRows: '200', pageNo: '1' });
   const box = r.landUses || r.response || {};
   if (box.resultCode && box.resultCode !== '') throw new Error(`토지이용계획 조회 실패: ${box.resultMsg || box.resultCode}`);
-  return [].concat(box.field || []).map(f => ({ name: f.prposAreaDstrcCodeNm, cn: f.cnflcAtNm }));
+  return [].concat(box.field || []).map(f => ({ name: f.prposAreaDstrcCodeNm, cn: f.cnflcAtNm, code: f.prposAreaDstrcCode || '' }));
 }
 async function landChar(pnu) {
   const r = await ned('getLandCharacteristics', { pnu, format: 'json', numOfRows: '100', pageNo: '1' });
@@ -354,10 +372,11 @@ async function run() {
   showMsg('');
   if (!getKey()) { $('keyCard').classList.remove('hide'); showMsg('먼저 브이월드 인증키를 저장해 주십시오.'); return; }
   const emd = $('emd').value, ri = $('ri').value, bunji = $('bunji').value.trim().replace(/\s/g, ''), act = actOf();
-  if (!ri || !bunji) { showMsg('리와 번지를 넣어 주십시오.'); return; }
+  if (!isDong(emd) && !ri) { showMsg('리를 골라 주십시오.'); return; }
+  if (!bunji) { showMsg('번지를 넣어 주십시오.'); return; }
   if (!/^\d+(-\d+)?$/.test(bunji)) { showMsg('번지는 숫자로 넣어 주십시오. 예: 123, 727-7'); return; }
   if (!act) { showMsg('하려는 일을 골라 주십시오.'); return; }
-  const addr = `충청북도 제천시 ${emd} ${ri} ${$('san').checked ? '산 ' : ''}${bunji}`;
+  const addr = `충청북도 제천시 ${emd} ${isDong(emd) ? '' : ri + ' '}${$('san').checked ? '산 ' : ''}${bunji}`;
   $('run').disabled = true; $('status').textContent = '브이월드에서 조회하는 중…';
   try {
     const hit = await findParcel(addr);
@@ -570,15 +589,18 @@ function render(c) {
   const skip = /^(도시지역|관리지역|농림지역|자연환경보전지역)$/;
   live.forEach(u => {
     if (ZONE_BY_API[u.name] || skip.test(u.name)) return;
-    const w = R.warn.find(w => w.pat && new RegExp(w.pat).test(u.name));
+    const w = R.warn.find(w => w.pat && new RegExp(w.pat).test(u.name)) || (isFacility(u) ? R.warn.find(x => /도시계획시설/.test(x.pat)) : null);
     let lv = w ? w.level : '정보';
     if (w && lv.startsWith('불가 가능성(축사)')) lv = act.row === LIVESTOCK_ROW ? '불가 가능성' : '정보';
     if (w && /성장관리|자연취락지구|보호취락지구/.test(w.pat)) lv = '정보';
     if (w && /자연재해위험개선지구/.test(w.pat) && /^(토지분할|물건 적치)/.test(act.label)) lv = '정보';
     if (lv.startsWith('불가') && resolved.some(x => u.name === x || (x === '임업용산지' && u.name === '보전산지'))) lv = '협의 필요';
-    warns.push({ name: u.name + (u.cn === '저촉' ? ' (일부 저촉)' : ''), lv, text: w ? w.text : '해당 법령에서 행위제한을 확인하십시오.', basis: w ? w.basis : '' });
+    warns.push({ name: u.name + (isFacility(u) && !/^(대로|중로|소로|광로)/.test(u.name) ? '(도시·군계획시설)' : '') + (u.cn === '저촉' ? ' (일부 저촉)' : ''), lv, text: w ? w.text : '해당 법령에서 행위제한을 확인하십시오.', basis: w ? w.basis : '' });
   });
   const red = warns.filter(w => w.lv.startsWith('불가'));
+  // 국토계획법 제64조①: 필지 전체가 도시·군계획시설 부지면 그 시설이 아닌 건축물·공작물은 허가할 수 없음
+  const facFull = live.filter(u => u.cn === '포함' && isFacility(u));
+  if (isBuilding && facFull.length) steps.push({ k: '도시·군계획시설 부지', st: 'CK', text: `필지 전체가 ${facFull.map(u => u.name).join('·')} 부지(도시·군계획시설)라 그 시설이 아닌 건축물·공작물은 허가할 수 없습니다. 예외(영 제61조, 미집행 시설의 가설건축물 등 법 제64조②)에 해당하는지 확인`, basis: '국토계획법 제64조, 영 제61조' });
 
   // 6) 개발행위 기준(정보)
   const crit = [];
@@ -605,7 +627,7 @@ function render(c) {
       crit.push(['도로', `맹지입니다. ${c.emd}의 비도시지역이라 건축법 접도 규정(4m 도로에 2m 접함)은 적용하지 않지만, 조례 제22조의 도로·상하수도 기준은 확인해야 합니다`, '건축법 제3조②, 조례 제22조']);
       if (isBuilding && !isSolar) steps.push({ k: '도로(맹지)', st: 'CK', text: '맹지라 진입도로(조례 제22조) 확보 계획 확인 필요', basis: '조례 제22조, 영 별표 1의2' });
     } else if (ch && ch.roadSideCodeNm === '맹지') {
-      crit.push(['도로', `맹지입니다. 건축하려면 너비 4m 이상 도로에 2m 이상 접해야 합니다(${(c.emd || '').endsWith('읍') ? '읍 지역이라' : '도시지역이라'} 적용)`, '건축법 제44조, 제3조②']);
+      crit.push(['도로', `맹지입니다. 건축하려면 너비 4m 이상 도로에 2m 이상 접해야 합니다(${isDong(c.emd) ? '동 지역이라' : (c.emd || '').endsWith('읍') ? '읍 지역이라' : /주거|상업|공업|녹지/.test(baseZone) ? '도시지역이라' : '지구단위계획구역이라'} 적용)`, '건축법 제44조, 제3조②']);
       if (isBuilding && !isSolar) steps.push({ k: '도로(맹지)', st: 'CK', text: '맹지라 진입도로 확보 계획이 있어야 건축 가능', basis: '건축법 제44조, 조례 제22조' });
     } else if (ch) crit.push(['도로', `도로 접면: ${ch.roadSideCodeNm}`, '토지특성']);
     if (jimok === '임야') crit.push(['경사도·입목축적', '임야는 산지관리법 기준(평균경사도 25도 이하, 입목축적 150% 이하 등) — 산림부서 협의', '산지관리법 시행령 별표 4']);
