@@ -552,6 +552,23 @@ function render(c) {
     steps.push({ k: '성장관리', st: 'CK', text: '성장관리계획구역이 걸려 있으나 용도지역이 계획관리가 아닙니다. 걸친 범위 확인', basis: '' });
   }
 
+  // 2-1) 경관지구 용도제한(조례 제32·33·39조, 판단규칙표 11_경관지구)
+  const GK = { '자연경관지구': ['자연', '제32조'], '특화경관지구': ['특화', '제33조'], '시가지경관지구': ['시가지', '제39조'] };
+  const gkUses = [...new Map(live.filter(u => /경관지구$/.test(u.name)).sort((a, b) => (a.cn === '포함' ? -1 : 1)).map(u => [u.name, u])).values()];
+  if (isBuilding) gkUses.forEach(u => {
+    const g = GK[u.name], part = u.cn === '저촉';
+    if (!g) { steps.push({ k: u.name, st: 'CK', text: '조례에 이 지구의 용도제한이 따로 있는지 확인', basis: '제천시 도시계획 조례' }); return; }
+    const row = (R.gk || {})[act.row] || {};
+    const ind = g[0] === '시가지' && /공업/.test(baseZone || '') && row.시가지공업;
+    const v = ind ? row.시가지공업 : (row[g[0]] || '가능');
+    let st = v.startsWith('불가') ? 'NG' : v.startsWith('확인') ? 'CK' : v.startsWith('조건부') ? 'COND' : 'OK';
+    const rest = v.replace(/^(불가|확인|조건부|가능)\s*—?\s*/, '');
+    let text = st === 'NG' ? `${u.name}에서는 지을 수 없습니다 — ${rest}` : st === 'OK' ? `${u.name}에서 금지하는 건축물이 아닙니다` : rest;
+    if (part && st === 'NG') { st = 'CK'; text = `필지 일부만 ${u.name}입니다. 그 부분에 지으면 불가 — ${rest}`; }
+    else if (part) text = `(필지 일부만 지구 안) ${text}`;
+    steps.push({ k: `경관지구 (${u.name}${part ? ' 일부' : ''})`, st, text, basis: `제천시 도시계획 조례 ${g[1]}${ind ? '③' : ''}` });
+  });
+
   // 3) 태양광
   let solarInfo = null, solarRoofMinor = false;
   if (isSolar) {
@@ -612,6 +629,7 @@ function render(c) {
     let lv = w ? w.level : '정보';
     if (w && lv.startsWith('불가 가능성(축사)')) lv = act.row === LIVESTOCK_ROW ? '불가 가능성' : '정보';
     if (w && /성장관리|자연취락지구|보호취락지구/.test(w.pat)) lv = '정보';
+    if (isBuilding && GK[u.name]) lv = '정보';   // 건축은 위 '경관지구' 판정에서 따짐
     if (w && /자연재해위험개선지구/.test(w.pat) && /^(토지분할|물건 적치)/.test(act.label)) lv = '정보';
     if (lv.startsWith('불가') && resolved.some(x => u.name === x || (x === '임업용산지' && u.name === '보전산지'))) lv = '협의 필요';
     warns.push({ name: u.name + (isFacility(u) && !/^(대로|중로|소로|광로)/.test(u.name) ? '(도시·군계획시설)' : '') + (u.cn === '저촉' ? ' (일부 저촉)' : ''), lv, text: w ? w.text : '해당 법령에서 행위제한을 확인하십시오.', basis: w ? w.basis : '' });
@@ -640,6 +658,9 @@ function render(c) {
       if (villages.length) t = `건폐율 60%(취락지구) · 용적률 ${b[1]}%`;
       crit.push(['건폐율·용적률', t, '조례 제50·51·59·60조']);
     }
+    const gkNS = gkUses.filter(u => u.name === '자연경관지구' || u.name === '특화경관지구').map(u => u.name);
+    if (gkNS.length) crit.push(['경관지구 높이·조경', `${gkNS.join('·')}: 높이 3층 또는 12m 이하(도시계획위원회 심의로 지정·공고한 구역은 1.5배까지) · 조경 ${/주거/.test(baseZone) ? '대지면적의 15% 이상' : /녹지/.test(baseZone) ? '대지면적의 30% 이상' : '비율 규정 없음(주거·녹지지역만 15%·30%)'} · 건폐율은 용도지역 기준`, '조례 제35·36·38조']);
+    if (gkUses.some(u => u.name === '시가지경관지구')) crit.push(['시가지경관지구', '조립식 경량구조·컨테이너·폐차량·비닐하우스·슬레이트·함석·천막구조 건축물은 불가 · 시장이 지정한 건축선 안쪽으로 건축하고 미관도로 후퇴 부분에 공작물·담장 등 설치 불가 · 별표 27 건축물 미관기준 적합', '조례 제39조①12호·제40·42조']);
     // 건축법 제3조②: 도시지역·지구단위계획구역 밖의 동·읍이 아닌 지역(면)은 접도 규정(제44조) 미적용
     const noFrontage = (c.emd || '').endsWith('면') && !/주거|상업|공업|녹지/.test(baseZone) && !has(/지구단위계획/);
     if (ch && ch.roadSideCodeNm === '맹지' && noFrontage) {
