@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
-<script src="rules.js?v=20261016-1637"></script>
+<script src="rules.js?v=20261022-1146"></script>
 <style>
   :root {
     --bg: #f2f4f6; --card: #ffffff; --text: #191f28; --sub: #6b7684; --line: #eef0f2;
@@ -56,6 +56,17 @@
   #map { height: 420px; border-radius: 12px; background: #dfe3e8; }
   @media (max-width: 760px) { .board { display: flex; flex-direction: column; } .col { display: contents; } #map { height: 340px; }
     .o1 { order: 1; } .o2 { order: 2; } .o3 { order: 3; } .o4 { order: 4; } .o5 { order: 5; } .o6 { order: 6; } }
+  /* 지도 크게 보기: 지도 카드만 화면 전체로 펼침(아이패드 사파리는 요소 전체화면을 지원하지 않아 화면 안에서 키움) */
+  .mapbtn { position: absolute; top: 18px; right: 18px; z-index: 1001; display: flex; align-items: center; gap: 6px; background: #fff; color: var(--text);
+    border: 0; border-radius: 10px; padding: 0 12px; min-height: 38px; font-size: 14px; font-weight: 700; cursor: pointer; box-shadow: 0 1px 5px rgba(0,0,0,.35); }
+  .mapbtn svg { width: 16px; height: 16px; flex: none; }
+  .maptitle { display: none; }
+  .mapcard.big { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 3000; border-radius: 0; display: flex; flex-direction: column;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  .mapcard.big #map { flex: 1; height: auto; min-height: 0; }
+  .mapcard.big .maptitle { display: flex; align-items: center; min-height: 38px; margin-bottom: 6px; padding: 0 130px 0 6px; font-weight: 700; font-size: 15px; }
+  .mapcard.big .mapbtn { top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); background: var(--blue); color: #fff; box-shadow: none; }
+  body.mapbig { overflow: hidden; }
   .legend { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: 12px; color: var(--sub); margin: 6px 4px 2px; }
   .sw { display: inline-block; width: 13px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
   .s-OK { background: var(--ok-weak); color: #0b5d2e; } .s-COND { background: var(--cond-weak); color: #7a4d00; }
@@ -130,7 +141,7 @@
   <div class="hide" id="result">
     <div class="verdict" id="verdict"></div>
     <div class="board">
-      <div class="col" id="col1"><div class="card mapcard o1"><div id="map"></div><div class="legend" id="legend"></div></div></div>
+      <div class="col" id="col1"><div class="card mapcard o1"><div class="maptitle" id="mapTitle"></div><div id="map"></div><button class="mapbtn" id="mapBig" type="button"></button><div class="legend" id="legend"></div></div></div>
       <div class="col" id="col2"></div>
       <div class="col" id="col3"></div>
     </div>
@@ -138,6 +149,6 @@
 
   <div class="foot">기준: 판단규칙표·용도지역별 건축가능 건축물표(2026. 10. 13.) · 브이월드 공간정보 · 1차 판단용이며 처분 근거는 법령 원문으로 다시 확인합니다.<br><span id="ver"></span> · <a href="#" id="showKey">인증키 다시 넣기</a></div>
 </div>
-<script src="app.js?v=20261016-1637"></script>
+<script src="app.js?v=20261022-1146"></script>
 </body>
 </html>

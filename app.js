@@ -177,6 +177,25 @@ function initMap() {
   L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${getKey()}/Hybrid/{z}/{y}/{x}.png`, { maxZoom: 19, minZoom: 7 }).addTo(map);
   layer = L.layerGroup().addTo(map);
 }
+// 지도 크게 보기 / 작게 보기 (보던 위치·확대 정도는 그대로 둠)
+const ICON_BIG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+const ICON_SMALL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+const mapCard = () => document.querySelector('.mapcard');
+const isBig = () => mapCard().classList.contains('big');
+function setBig(on) {
+  const ctr = map && map.getCenter(), z = map && map.getZoom();
+  mapCard().classList.toggle('big', on);
+  document.body.classList.toggle('mapbig', on);
+  $('mapBig').innerHTML = on ? ICON_SMALL + '작게 보기' : ICON_BIG + '크게 보기';
+  $('mapBig').setAttribute('aria-pressed', String(on));
+  setTimeout(() => {
+    if (map) { map.invalidateSize({ animate: false }); map.setView(ctr, z, { animate: false }); }
+    if (!on) placeCards();
+  }, 30);
+}
+setBig(false);
+$('mapBig').onclick = () => setBig(!isBig());
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && isBig()) setBig(false); });
 
 // ---------- 판정 도우미 ----------
 const ZONE_BY_API = Object.fromEntries(Object.entries(R.zones).map(([k, z]) => [z.api, k]));
@@ -415,7 +434,7 @@ const SPECIAL_LAW = { '농업진흥구역': '농지법', '농업보호구역': '
 // ---------- 카드 배치 ----------
 let boardCards = [];
 function placeCards() {
-  if (!boardCards.length) return;
+  if (!boardCards.length || isBig()) return;   // 크게 보기 중에는 지도 칸 높이가 빠져 배치가 틀어지므로 작게 보기로 돌아올 때 다시 배치
   boardCards.forEach(e => e.remove());
   const cols = [$('col1'), $('col2'), $('col3')];
   const [first, second, ...rest] = boardCards;
@@ -693,6 +712,7 @@ function render(c) {
 
   // 지도
   initMap();
+  $('mapTitle').textContent = c.addr;
   layer.clearLayers();
   const p = L.geoJSON(geom, { style: { color: '#ff3b30', weight: 3, fillOpacity: 0.12 } }).addTo(layer);
   const leg = ['<span><span class="sw" style="background:#ff3b30"></span>신청 필지</span>'];
