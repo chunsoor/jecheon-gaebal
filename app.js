@@ -34,7 +34,8 @@ function refreshKeyCard() { $('keyCard').classList.toggle('hide', !!getKey()); }
 $('saveKey').onclick = () => { setKey($('key').value.trim()); $('key').value = ''; refreshKeyCard(); if (map) { map.remove(); map = null; } };
 $('showKey').onclick = e => { e.preventDefault(); $('keyCard').classList.remove('hide'); };
 refreshKeyCard();
-{ const m = (document.querySelector('script[src*="app.js"]') || {}).src?.match(/v=([0-9-]+)/); if ($('ver')) $('ver').textContent = '화면 버전 ' + (m ? m[1] : '-'); }
+const VER = (((document.querySelector('script[src*="app.js"]') || {}).src || '').match(/v=([0-9-]+)/) || [])[1] || '';
+if ($('ver')) $('ver').textContent = '화면 버전 ' + (VER || '-');
 
 // ---------- 입력 화면 ----------
 $('emd').innerHTML = `<optgroup label="읍·면">${Object.keys(RI).map(e => `<option>${e}</option>`).join('')}</optgroup>` +
@@ -91,7 +92,7 @@ function renderOpts() {
   } else if (a.label.startsWith('물건 적치')) {
     h = numBox('o_m2', '적치 면적(㎡)') + numBox('o_ton', '무게(톤)') + numBox('o_m3', '부피(㎥)') + selBox('o_month', '기간', [['', '선택'], ['y', '1개월 이상'], ['n', '1개월 미만']]);
   }
-  h += selBox('o_type', '성장관리계획 유형(구역 안일 때, 도면 확인 후)', [['', '모름(세 유형 모두 보기)'], ['일반형', '일반형 (용도지역 기준 그대로)'], ['주거형', '주거형 (주택 위주)'], ['복합형', '복합형 (주택·상가 혼합)']]);
+  h += selBox('o_type', '성장관리계획 유형(비우면 지형도면 자동 판독)', [['', '자동(지형도면 판독)'], ['일반형', '일반형 (용도지역 기준 그대로)'], ['주거형', '주거형 (주택 위주)'], ['복합형', '복합형 (주택·상가 혼합)']]);
   const minorHint = a.row === SOLAR_ROW || a.label.startsWith('공작물')
     ? `<div class="hint"><b>개발행위허가 없이 설치할 수 있는 경우(경미한 행위)</b>: 무게·부피·수평투영면적이 <b>모두</b> 아래 기준 이하일 때 · 도시지역·지구단위계획구역 <b>50톤·50㎥·50㎡</b> · 그 밖의 지역(관리·농림) <b>150톤·150㎥·150㎡</b> · 자연환경보전지역은 해당 없음(허가 필요)${a.label.includes('건물 위') ? '' : ' · 높이 5m 넘는 태양광 등 건축법 신고 공작물은 제외'} . 농지·산지 전용 등 다른 허가는 별도 (국토계획법 시행령 제53조2호)</div>` : '';
   $('opts').innerHTML = `<div class="opts">${h}</div>` + (a.note ? `<div class="hint">${esc(a.note)}</div>` : '') + minorHint;
@@ -167,6 +168,59 @@ async function buildings(bbox) {
 // 주택 추정: 건축물 주용도코드 단독주택(01000~01003)·공동주택(02000~02003). 공관(01004)·기숙사(02004) 제외
 const isHouse = f => /^(0100[0-3]|0200[0-3])$/.test(f.properties.usability || '');
 const isUnknown = f => !f.properties.usability;
+
+// ---------- 성장관리계획 유형: 지형도면(고시 제2026-18호) 135장에서 뽑은 2m 격자 유형 지도(growth.json·growth.bin) ----------
+const GT_NAME = ['구역 밖', '일반형', '주거형', '복합형'];
+let gtIndex, gtBin;
+const gtData = new Map();   // 최근 10장만 기억(아이패드 메모리)
+const getOk = (u, how) => fetch(u + '?v=' + VER).then(r => { if (!r.ok) throw new Error(); return r[how](); });
+const growthIndex = () => gtIndex || (gtIndex = getOk('growth.json', 'json').catch(e => { gtIndex = null; throw e; }));
+// growth.bin(135장 PNG를 이어 붙인 파일)에서 한 장을 꺼내 픽셀 배열로
+// 칸마다 유형 번호(0 구역 밖, 1 일반, 2 주거, 3 복합) 1바이트로 바꿔 보관
+function sheetData(s) {
+  if (gtData.has(s.f)) { const p = gtData.get(s.f); gtData.delete(s.f); gtData.set(s.f, p); return p; }
+  const p = (gtBin || (gtBin = getOk('growth.bin', 'arrayBuffer').catch(e => { gtBin = null; throw e; }))).then(buf => new Promise((ok, no) => {
+    const url = URL.createObjectURL(new Blob([buf.slice(s.o, s.o + s.l)], { type: 'image/png' }));
+    const im = new Image();
+    im.onload = () => {
+      const cv = document.createElement('canvas'); cv.width = s.w; cv.height = s.h;
+      const cx = cv.getContext('2d'); cx.drawImage(im, 0, 0);
+      const d = cx.getImageData(0, 0, s.w, s.h).data, t = new Uint8Array(s.w * s.h);
+      for (let k = 0, o = 0; k < t.length; k++, o += 4) { const r = d[o], g = d[o + 1], b = d[o + 2]; t[k] = b > 128 && r < 128 ? 1 : r > 128 && g > 128 && b < 128 ? 2 : r > 128 && g < 128 ? 3 : 0; }
+      cv.width = cv.height = 0; URL.revokeObjectURL(url); ok(t);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); no(new Error()); };
+    im.src = url;
+  })).catch(e => { gtData.delete(s.f); throw e; });
+  gtData.set(s.f, p);
+  if (gtData.size > 10) gtData.delete(gtData.keys().next().value);
+  return p;
+}
+// 필지 안을 약 1~3m 간격(최대 3,000점)으로 찍어 유형별 비율을 셈. c[0] 구역 밖, c[1~3] 일반·주거·복합, c[4] 도면 밖
+async function growthType(geom) {
+  const idx = await growthIndex();
+  const [x0, y0, x1, y1] = turf.bbox(geom);
+  const sheets = idx.sheets.filter(s => !(s.bb[2] < x0 || s.bb[0] > x1 || s.bb[3] < y0 || s.bb[1] > y1));
+  const data = await Promise.all(sheets.map(sheetData));
+  const kx = 111320 * Math.cos(y0 * Math.PI / 180), ky = 110950;
+  const step = Math.max(1, Math.sqrt((x1 - x0) * kx * (y1 - y0) * ky / 3000));
+  const c = [0, 0, 0, 0, 0], used = new Set();
+  let n = 0;
+  for (let X = x0 + step / kx / 2; X < x1; X += step / kx) for (let Y = y0 + step / ky / 2; Y < y1; Y += step / ky) {
+    if (!turf.booleanPointInPolygon([X, Y], geom)) continue;
+    n++;
+    let got = 4;
+    sheets.some((s, k) => {
+      const v = s.inv, i = Math.floor(v[0] * X + v[1] * Y + v[2]), j = Math.floor(v[3] * X + v[4] * Y + v[5]);
+      if (i < 0 || j < 0 || i >= s.w || j >= s.h) return false;
+      got = data[k][j * s.w + i];
+      used.add(s.n);
+      return true;
+    });
+    c[got]++;
+  }
+  return { n, c, sheets: [...used] };
+}
 
 // ---------- 지도 ----------
 let map, layer;
@@ -413,8 +467,9 @@ async function run() {
       const buf = turf.buffer(geom, radius / 1000, { units: 'kilometers' });
       blds = await buildings(turf.bbox(buf));
     }
+    const gt = uses.some(u => /성장관리/.test(u.name) && u.cn !== '접함') ? await growthType(geom).catch(() => ({ err: true })) : null;
     $('status').textContent = '';
-    render({ emd, addr, pnu, uses, ch, reg, geom, act, isSolar, date, legacy, blds });
+    render({ emd, addr, pnu, uses, ch, reg, geom, act, isSolar, date, legacy, blds, gt });
   } catch (e) {
     showMsg(e.message); $('status').textContent = '';
   } finally { $('run').disabled = false; }
@@ -454,7 +509,19 @@ function render(c) {
   const steps = [];   // {k, st, text, basis}
   const field = [];
   const form = isSolar ? (act.label.includes('건물 위') ? 'roof' : $('o_form').value) : null;
-  const gtype = $('o_type') ? $('o_type').value : '';
+  // 성장관리 유형: 고른 값이 없으면 지형도면 자동 판독(필지의 절반 이상이 유형 구역 안이고, 그중 90% 이상이 한 유형이면 그 유형)
+  const gtManual = $('o_type') ? $('o_type').value : '';
+  const gt = c.gt;
+  let gAuto = '', gNote = '';
+  if (gt && gt.err) gNote = '지형도면 자료를 불러오지 못함';
+  else if (gt && gt.n) {
+    const z = gt.c[1] + gt.c[2] + gt.c[3], top = [1, 2, 3].reduce((a, k) => (gt.c[k] > gt.c[a] ? k : a), 1);
+    const pct = k => Math.round(gt.c[k] / gt.n * 100) + '%';
+    if (z / gt.n >= 0.5 && gt.c[top] / z >= 0.9) gAuto = GT_NAME[top];
+    gNote = z ? [1, 2, 3, 0, 4].filter(k => gt.c[k]).map(k => `${k === 4 ? '도면 밖' : GT_NAME[k]} ${pct(k)}`).join(' · ') + ` (지형도면 ${gt.sheets.join('·')})`
+      : `지형도면의 유형 구역 밖으로 읽힘${gt.sheets.length ? ` (지형도면 ${gt.sheets.join('·')})` : ''}`;
+  }
+  const gtype = gtManual || gAuto;
   const mapArea = turf.area(geom);
   let area = mapArea;
   // 면적
@@ -530,10 +597,10 @@ function render(c) {
         <div class="basis">주거형·복합형은 태양광 발전시설을 막는 용도로 정했지만 ${SOLAR_EXC}(주민 동의 + 국가·지자체 지원 + 마을공동체 직접 시행)은 예외입니다. 그래서 땅 위에 세워 전기를 파는 사업용만 막힙니다.</div></div>`;
     }
     growthBox = `<div class="sub2"><b>성장관리계획구역 유형별 판단</b>
-      <div class="hint" style="margin-top:2px">이 필지는 성장관리계획구역 안입니다. 구역마다 일반형·주거형·복합형 중 하나로 정해져 있고, 유형마다 지을 수 없는 용도가 다릅니다. ${gtype ? `고르신 유형(${gtype})을 진하게 표시했습니다.` : '이 필지의 유형은 지형도면(제천 지형도면 모음)에서 찾아 확인합니다.'}</div>
+      <div class="hint" style="margin-top:2px">이 필지는 성장관리계획구역 안입니다. 구역마다 일반형·주거형·복합형 중 하나로 정해져 있고, 유형마다 지을 수 없는 용도가 다릅니다. ${gtManual ? `고르신 유형(${gtManual})을 진하게 표시했습니다.${gAuto && gAuto !== gtManual ? ` 지형도면 자동 판독은 ${gAuto}입니다.` : ''}` : gAuto ? `지형도면 자동 판독 결과 <b>${gAuto}</b>이라 진하게 표시했습니다. 필지의 ${esc(gNote)}.` : `지형도면 자동 판독: ${esc(gNote || '자료 없음')}. 유형을 하나로 정할 수 없어 세 유형을 모두 보여 드립니다. 지형도면(제천 지형도면 모음)에서 확인해 주십시오.`}</div>
       <div class="three">${res.map(cell).join('')}</div>${solarTable}
       <div class="basis">세 유형 공통: 건폐율 40%(권장 용도 등 인센티브 시 최대 50%) · 용적률 100%(최대 125%) · 도시계획위원회 심의 제외 · 체크리스트 제출. 근거: 성장관리계획 시행지침 제7·8·18조</div></div>`;
-    if (gtype) { const r = res.find(x => x.t === gtype); steps.push({ k: `성장관리 (${gtype})`, st: r.st, text: r.text, basis: '성장관리계획 시행지침 제7조' }); }
+    if (gtype) { const r = res.find(x => x.t === gtype); steps.push({ k: `성장관리 (${gtype}${gtManual ? '' : ', 지형도면 판독'})`, st: r.st, text: r.text, basis: '성장관리계획 시행지침 제7조' + (gtManual ? '' : ' · 고시 제2026-18호 지형도면') }); }
     else {
       const sts = [...new Set(res.map(r => r.st))];
       if (sts.length === 1) steps.push({ k: '성장관리', st: sts[0], text: `세 유형 모두 ${LABEL[sts[0]]}`, basis: '성장관리계획 시행지침 제7조' });
@@ -697,7 +764,7 @@ function render(c) {
   // 현장 확인
   if (isBuilding && !isSolar) field.push('진입도로 폭·접도, 상하수도(조례 제22조), 배수·비탈면(조례 제23조)');
   if (!isBuilding) field.push('공사 규모(높이·면적·부피)와 지목변경 여부, 배수·비탈면');
-  if (growthOn) field.push('성장관리 유형: 지형도면(제천 지형도면 모음)에서 확인');
+  if (growthOn) field.push(gAuto && !gtManual ? `성장관리 유형: 지형도면 자동 판독(${gAuto}). 2m 격자로 읽은 값이라 구역 경계에 걸친 필지는 처분 전 지형도면(${gt.sheets.join('·')})으로 최종 확인` : '성장관리 유형: 지형도면(제천 지형도면 모음)에서 확인');
 
   // ---------- 그리기 ----------
   const zchips = zoneUses.map(u => `<span class="chip z">${esc(u.name)}${u.cn === '저촉' ? ' (저촉)' : ''}</span>`).join('');
@@ -722,7 +789,8 @@ function render(c) {
       <span class="k">면적</span><span class="num">${esc(areaNote)}</span>
       <span class="k">도로 접면</span><span>${esc(ch ? ch.roadSideCodeNm : '자료 없음')}</span>
       <span class="k">용도지역</span><div class="chips">${zchips || '<span class="chip">확인 안 됨</span>'}</div>
-      <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div></div></div>
+      <span class="k">그 밖</span><div class="chips">${ochips || '-'}</div>${gt ? `
+      <span class="k">성장관리 유형</span><span>${gAuto ? `<b>${gAuto}</b> · ` : ''}${esc(gNote || '자료 없음')}</span>` : ''}</div></div>
     <div class="card o6"><h2>현장 확인 필요</h2><ul class="field">${[...new Set(field)].map(f => `<li>${esc(f)}</li>`).join('')}</ul></div>
     <div class="card o4"><h2>구역별 주의</h2>${warnHtml}</div>`;
   // 이전 조회의 카드를 지우고 새 카드로 바꿈
